@@ -24,11 +24,11 @@ module Catan = struct
     | Green
     | Red
   type resources =
-    | Wood
-    | Clay
-    | Stone
-    | Wheat
-    | Sheep
+    | RWood
+    | RClay
+    | RStone
+    | RWheat
+    | RSheep
   type field =
     | Wood  of int
     | Clay  of int
@@ -37,11 +37,13 @@ module Catan = struct
     | Sheep of int
     | Desert
   type settlement =
-    | Village of field list
-    | Town    of field list
-    | None    of field list
+    | Village of field list * color
+    | Town    of field list * color
+    | Empty   of field list
+    | Blocked
   (* Game state *)
   type t = {
+    mutable player : color;
     mutable board  : field list;
     mutable towns  : settlement list;
     mutable roads  : unit;
@@ -49,70 +51,100 @@ module Catan = struct
     mutable dices  : int;
   }
 
+  let order = [Green; Red]
   let nof_settlements = 54
   let numbers = [5;2;6;3;8;10;9;12;11;4;8;10;9;4;5;6;3;11]
   let fields = Utils.shuffle ['D';'D';'D';'D';'G';'G';'G';'S';'S';'S';'S';'K';'K';'K';'O';'O';'O';'O';'P']
+  let resourde2str f =
+    match f with
+    | RWood  -> "wood"
+    | RClay  -> "clay"
+    | RStone -> "stone"
+    | RWheat -> "wheat"
+    | RSheep -> "sheep"
+  let field2str f =
+    match f with
+    | Wood  _ -> "wood"
+    | Clay  _ -> "clay"
+    | Stone _ -> "stone"
+    | Wheat _ -> "wheat"
+    | Sheep _ -> "sheep"
+    | Desert  -> "gówno"
+  let color2str c =
+    match c with
+    | Green -> "green"
+    | Red   -> "red"
 
+  let check_resources (fl:field list) n =
+    List.filter_map (fun f ->
+      match f with
+      | Wood  i -> if i = n then Some RWood else None
+      | Clay  i -> if i = n then Some RClay else None
+      | Stone i -> if i = n then Some RStone else None
+      | Wheat i -> if i = n then Some RWheat else None
+      | Sheep i -> if i = n then Some RSheep else None
+      | Desert  -> None
+    ) fl
   let init_settlements board =
-    (*  1 *) List.append [None [List.nth board 0]] @@
-    (*  2 *) List.append [None [List.nth board 0]] @@
-    (*  3 *) List.append [None [List.nth board 0 ; List.nth board 1]] @@
-    (*  4 *) List.append [None [List.nth board 1]] @@
-    (*  5 *) List.append [None [List.nth board 1 ; List.nth board 2]] @@
-    (*  6 *) List.append [None [List.nth board 2]] @@
-    (*  7 *) List.append [None [List.nth board 2]] @@
+    (*  1 *) List.append [Empty [List.nth board 0]] @@
+    (*  2 *) List.append [Empty [List.nth board 0]] @@
+    (*  3 *) List.append [Empty [List.nth board 0 ; List.nth board 1]] @@
+    (*  4 *) List.append [Empty [List.nth board 1]] @@
+    (*  5 *) List.append [Empty [List.nth board 1 ; List.nth board 2]] @@
+    (*  6 *) List.append [Empty [List.nth board 2]] @@
+    (*  7 *) List.append [Empty [List.nth board 2]] @@
 
-    (*  8 *) List.append [None [List.nth board 3]] @@
-    (*  9 *) List.append [None [List.nth board 0 ; List.nth board 3]] @@
-    (* 10 *) List.append [None [List.nth board 0 ; List.nth board 3 ; List.nth board 4]] @@
-    (* 11 *) List.append [None [List.nth board 0 ; List.nth board 1 ; List.nth board 4]] @@
-    (* 12 *) List.append [None [List.nth board 1 ; List.nth board 4 ; List.nth board 5]] @@
-    (* 13 *) List.append [None [List.nth board 1 ; List.nth board 2 ; List.nth board 5]] @@
-    (* 14 *) List.append [None [List.nth board 2 ; List.nth board 5 ; List.nth board 6]] @@
-    (* 15 *) List.append [None [List.nth board 2 ; List.nth board 6]] @@
-    (* 16 *) List.append [None [List.nth board 6]] @@
+    (*  8 *) List.append [Empty [List.nth board 3]] @@
+    (*  9 *) List.append [Empty [List.nth board 0 ; List.nth board 3]] @@
+    (* 10 *) List.append [Empty [List.nth board 0 ; List.nth board 3 ; List.nth board 4]] @@
+    (* 11 *) List.append [Empty [List.nth board 0 ; List.nth board 1 ; List.nth board 4]] @@
+    (* 12 *) List.append [Empty [List.nth board 1 ; List.nth board 4 ; List.nth board 5]] @@
+    (* 13 *) List.append [Empty [List.nth board 1 ; List.nth board 2 ; List.nth board 5]] @@
+    (* 14 *) List.append [Empty [List.nth board 2 ; List.nth board 5 ; List.nth board 6]] @@
+    (* 15 *) List.append [Empty [List.nth board 2 ; List.nth board 6]] @@
+    (* 16 *) List.append [Empty [List.nth board 6]] @@
 
-    (* 17 *) List.append [None [List.nth board 7]] @@
-    (* 18 *) List.append [None [List.nth board 3 ; List.nth board 7]] @@
-    (* 19 *) List.append [None [List.nth board 3 ; List.nth board 7 ; List.nth board 8]] @@
-    (* 20 *) List.append [None [List.nth board 3 ; List.nth board 4 ; List.nth board 8]] @@
-    (* 21 *) List.append [None [List.nth board 4 ; List.nth board 8 ; List.nth board 9]] @@
-    (* 22 *) List.append [None [List.nth board 4 ; List.nth board 5 ; List.nth board 9]] @@
-    (* 23 *) List.append [None [List.nth board 5 ; List.nth board 9 ; List.nth board 10]] @@
-    (* 24 *) List.append [None [List.nth board 5 ; List.nth board 6 ; List.nth board 10]] @@
-    (* 25 *) List.append [None [List.nth board 6 ; List.nth board 10 ; List.nth board 11]] @@
-    (* 26 *) List.append [None [List.nth board 6 ; List.nth board 11]] @@
-    (* 27 *) List.append [None [List.nth board 11]] @@
+    (* 17 *) List.append [Empty [List.nth board 7]] @@
+    (* 18 *) List.append [Empty [List.nth board 3 ; List.nth board 7]] @@
+    (* 19 *) List.append [Empty [List.nth board 3 ; List.nth board 7 ; List.nth board 8]] @@
+    (* 20 *) List.append [Empty [List.nth board 3 ; List.nth board 4 ; List.nth board 8]] @@
+    (* 21 *) List.append [Empty [List.nth board 4 ; List.nth board 8 ; List.nth board 9]] @@
+    (* 22 *) List.append [Empty [List.nth board 4 ; List.nth board 5 ; List.nth board 9]] @@
+    (* 23 *) List.append [Empty [List.nth board 5 ; List.nth board 9 ; List.nth board 10]] @@
+    (* 24 *) List.append [Empty [List.nth board 5 ; List.nth board 6 ; List.nth board 10]] @@
+    (* 25 *) List.append [Empty [List.nth board 6 ; List.nth board 10 ; List.nth board 11]] @@
+    (* 26 *) List.append [Empty [List.nth board 6 ; List.nth board 11]] @@
+    (* 27 *) List.append [Empty [List.nth board 11]] @@
 
-    (* 28 *) List.append [None [List.nth board 7]] @@
-    (* 29 *) List.append [None [List.nth board 7 ; List.nth board 12]] @@
-    (* 30 *) List.append [None [List.nth board 7 ; List.nth board 8; List.nth board 12]] @@
-    (* 31 *) List.append [None [List.nth board 8 ; List.nth board 12 ; List.nth board 13]] @@
-    (* 32 *) List.append [None [List.nth board 8 ; List.nth board 9 ; List.nth board 13]] @@
-    (* 33 *) List.append [None [List.nth board 9 ; List.nth board 13 ; List.nth board 14]] @@
-    (* 34 *) List.append [None [List.nth board 9 ; List.nth board 10 ; List.nth board 14]] @@
-    (* 35 *) List.append [None [List.nth board 10 ; List.nth board 14 ; List.nth board 15]] @@
-    (* 36 *) List.append [None [List.nth board 10 ; List.nth board 11 ; List.nth board 15]] @@
-    (* 37 *) List.append [None [List.nth board 11 ; List.nth board 15]] @@
-    (* 38 *) List.append [None [List.nth board 11]] @@
+    (* 28 *) List.append [Empty [List.nth board 7]] @@
+    (* 29 *) List.append [Empty [List.nth board 7 ; List.nth board 12]] @@
+    (* 30 *) List.append [Empty [List.nth board 7 ; List.nth board 8; List.nth board 12]] @@
+    (* 31 *) List.append [Empty [List.nth board 8 ; List.nth board 12 ; List.nth board 13]] @@
+    (* 32 *) List.append [Empty [List.nth board 8 ; List.nth board 9 ; List.nth board 13]] @@
+    (* 33 *) List.append [Empty [List.nth board 9 ; List.nth board 13 ; List.nth board 14]] @@
+    (* 34 *) List.append [Empty [List.nth board 9 ; List.nth board 10 ; List.nth board 14]] @@
+    (* 35 *) List.append [Empty [List.nth board 10 ; List.nth board 14 ; List.nth board 15]] @@
+    (* 36 *) List.append [Empty [List.nth board 10 ; List.nth board 11 ; List.nth board 15]] @@
+    (* 37 *) List.append [Empty [List.nth board 11 ; List.nth board 15]] @@
+    (* 38 *) List.append [Empty [List.nth board 11]] @@
 
-    (* 39 *) List.append [None [List.nth board 12]] @@
-    (* 40 *) List.append [None [List.nth board 12 ; List.nth board 16]] @@
-    (* 41 *) List.append [None [List.nth board 12 ; List.nth board 13 ; List.nth board 16]] @@
-    (* 42 *) List.append [None [List.nth board 13 ; List.nth board 16 ; List.nth board 17]] @@
-    (* 43 *) List.append [None [List.nth board 13 ; List.nth board 14 ; List.nth board 17]] @@
-    (* 44 *) List.append [None [List.nth board 14 ; List.nth board 17 ; List.nth board 18]] @@
-    (* 45 *) List.append [None [List.nth board 14 ; List.nth board 15 ; List.nth board 18]] @@
-    (* 46 *) List.append [None [List.nth board 15 ; List.nth board 18]] @@
-    (* 47 *) List.append [None [List.nth board 15]] @@
+    (* 39 *) List.append [Empty [List.nth board 12]] @@
+    (* 40 *) List.append [Empty [List.nth board 12 ; List.nth board 16]] @@
+    (* 41 *) List.append [Empty [List.nth board 12 ; List.nth board 13 ; List.nth board 16]] @@
+    (* 42 *) List.append [Empty [List.nth board 13 ; List.nth board 16 ; List.nth board 17]] @@
+    (* 43 *) List.append [Empty [List.nth board 13 ; List.nth board 14 ; List.nth board 17]] @@
+    (* 44 *) List.append [Empty [List.nth board 14 ; List.nth board 17 ; List.nth board 18]] @@
+    (* 45 *) List.append [Empty [List.nth board 14 ; List.nth board 15 ; List.nth board 18]] @@
+    (* 46 *) List.append [Empty [List.nth board 15 ; List.nth board 18]] @@
+    (* 47 *) List.append [Empty [List.nth board 15]] @@
 
-    (* 48 *) List.append [None [List.nth board 16]] @@
-    (* 49 *) List.append [None [List.nth board 16]] @@
-    (* 50 *) List.append [None [List.nth board 16 ; List.nth board 17]] @@
-    (* 51 *) List.append [None [List.nth board 17]] @@
-    (* 52 *) List.append [None [List.nth board 17 ; List.nth board 18]] @@
-    (* 53 *) List.append [None [List.nth board 18]] @@
-    (* 54 *) List.append [None [List.nth board 18]] []
+    (* 48 *) List.append [Empty [List.nth board 16]] @@
+    (* 49 *) List.append [Empty [List.nth board 16]] @@
+    (* 50 *) List.append [Empty [List.nth board 16 ; List.nth board 17]] @@
+    (* 51 *) List.append [Empty [List.nth board 17]] @@
+    (* 52 *) List.append [Empty [List.nth board 17 ; List.nth board 18]] @@
+    (* 53 *) List.append [Empty [List.nth board 18]] @@
+    (* 54 *) List.append [Empty [List.nth board 18]] []
   let generate_board () =
     let rec _generate_board n f out =
       match n, f with
@@ -136,13 +168,28 @@ module Catan = struct
         | Desert -> n
         | _ -> _aux (n+1) @@ List.tl board
     in _aux 0 board
-  let build_village (gameState : t) (idx : int) (builder : color) =
+  let build_village gameState idx =
+    print_string @@ "Player " ^ color2str gameState.player ^ " builts a village at position " ^ Int.to_string idx ^ "\n";
     let place = List.nth gameState.towns idx in
     match place with
-      | None x ->
+      | Empty x ->
           let settlements = gameState.towns in
-          gameState.towns <- Utils.replace settlements idx (Village x)
+          gameState.towns <- Utils.replace settlements idx (Village (x, gameState.player))
       | _ -> failwith "Ooops! You can build village only on empty field!\n"
+
+  let dice_roll gameState n =
+    print_string @@ "Dice roll: " ^ Int.to_string n ^ "\n";
+    gameState.dices <- n;
+    List.iter (fun b ->
+      match b with
+      | Village (fl, c) ->
+          List.iter (fun e ->
+            print_string @@ "Player " ^ color2str c ^ " gains " ^ resourde2str e ^ "\n"
+          ) @@ check_resources fl n
+      | Town (fl, c) -> ()
+      | Empty _ -> ()
+      | Blocked -> ()
+    ) gameState.towns
 
   let gameInit () =
     let board = generate_board () in {
@@ -151,20 +198,18 @@ module Catan = struct
       roads  = ();
       murzyn = get_desert_idx board;
       dices  = 0;
+      player = List.nth order 0;
     }
 
 end
 
 module Player = struct
-  type color =
-    | Green
-    | Red
   type t = {
     settlements : int list;
     resources   : Catan.resources list;
     points      : int;
     roads       : unit;
-    color       : color;
+    color       : Catan.color;
   }
 end
 
@@ -208,64 +253,64 @@ module Textures = struct
     (xoffset + 90*2 - 180*0), (yoffset + 155*2); (* field 19 *)
   ]
   let settlements_coords = [
-    (xoffset + 90*2 - 180*2), (yoffset - 155*2 - 100);
-    (xoffset + 90*2 - 180*1), (yoffset - 155*2 - 100);
-    (xoffset + 90*2 - 180*0), (yoffset - 155*2 - 100);
     (xoffset + 90*2 - 180*2 - 89), (yoffset - 155*2 - 55);
+    (xoffset + 90*2 - 180*2), (yoffset - 155*2 - 100);
     (xoffset + 90*2 - 180*2 + 89), (yoffset - 155*2 - 55);
+    (xoffset + 90*2 - 180*1), (yoffset - 155*2 - 100);
     (xoffset + 90*2 - 180*1 + 89), (yoffset - 155*2 - 55);
+    (xoffset + 90*2 - 180*0), (yoffset - 155*2 - 100);
     (xoffset + 90*2 - 180*0 + 89), (yoffset - 155*2 - 55);
 
-    (xoffset + 90*1 - 180*2), (yoffset - 155*1 - 100);
-    (xoffset + 90*1 - 180*1), (yoffset - 155*1 - 100);
-    (xoffset + 90*1 - 180*0), (yoffset - 155*1 - 100);
-    (xoffset + 90*1 + 180*1), (yoffset - 155*1 - 100);
     (xoffset + 90*1 - 180*2 - 89), (yoffset - 155*1 - 55);
+    (xoffset + 90*1 - 180*2), (yoffset - 155*1 - 100);
     (xoffset + 90*1 - 180*2 + 89), (yoffset - 155*1 - 55);
+    (xoffset + 90*1 - 180*1), (yoffset - 155*1 - 100);
     (xoffset + 90*1 - 180*1 + 89), (yoffset - 155*1 - 55);
+    (xoffset + 90*1 - 180*0), (yoffset - 155*1 - 100);
     (xoffset + 90*1 - 180*0 + 89), (yoffset - 155*1 - 55);
+    (xoffset + 90*1 + 180*1), (yoffset - 155*1 - 100);
     (xoffset + 90*1 + 180*1 + 89), (yoffset - 155*1 - 55);
 
     (xoffset + 90*1 - 180*3), (yoffset - 155*1 + 100);
-    (xoffset + 90*1 - 180*2), (yoffset - 155*1 + 100);
-    (xoffset + 90*1 - 180*1), (yoffset - 155*1 + 100);
-    (xoffset + 90*1 - 180*0), (yoffset - 155*1 + 100);
-    (xoffset + 90*1 + 180*1), (yoffset - 155*1 + 100);
-    (xoffset + 90*1 + 180*2), (yoffset - 155*1 + 100);
     (xoffset + 90*1 - 180*2 - 89), (yoffset - 155*1 + 55);
+    (xoffset + 90*1 - 180*2), (yoffset - 155*1 + 100);
     (xoffset + 90*1 - 180*2 + 89), (yoffset - 155*1 + 55);
+    (xoffset + 90*1 - 180*1), (yoffset - 155*1 + 100);
     (xoffset + 90*1 - 180*1 + 89), (yoffset - 155*1 + 55);
+    (xoffset + 90*1 - 180*0), (yoffset - 155*1 + 100);
     (xoffset + 90*1 - 180*0 + 89), (yoffset - 155*1 + 55);
+    (xoffset + 90*1 + 180*1), (yoffset - 155*1 + 100);
     (xoffset + 90*1 + 180*1 + 89), (yoffset - 155*1 + 55);
+    (xoffset + 90*1 + 180*2), (yoffset - 155*1 + 100);
 
     (xoffset + 90*1 - 180*3), (yoffset + 155*1 - 100);
-    (xoffset + 90*1 - 180*2), (yoffset + 155*1 - 100);
-    (xoffset + 90*1 - 180*1), (yoffset + 155*1 - 100);
-    (xoffset + 90*1 - 180*0), (yoffset + 155*1 - 100);
-    (xoffset + 90*1 + 180*1), (yoffset + 155*1 - 100);
-    (xoffset + 90*1 + 180*2), (yoffset + 155*1 - 100);
     (xoffset + 90*1 - 180*2 - 89), (yoffset + 155*1 - 55);
+    (xoffset + 90*1 - 180*2), (yoffset + 155*1 - 100);
     (xoffset + 90*1 - 180*2 + 89), (yoffset + 155*1 - 55);
+    (xoffset + 90*1 - 180*1), (yoffset + 155*1 - 100);
     (xoffset + 90*1 - 180*1 + 89), (yoffset + 155*1 - 55);
+    (xoffset + 90*1 - 180*0), (yoffset + 155*1 - 100);
     (xoffset + 90*1 - 180*0 + 89), (yoffset + 155*1 - 55);
+    (xoffset + 90*1 + 180*1), (yoffset + 155*1 - 100);
     (xoffset + 90*1 + 180*1 + 89), (yoffset + 155*1 - 55);
+    (xoffset + 90*1 + 180*2), (yoffset + 155*1 - 100);
 
-    (xoffset + 90*1 - 180*2), (yoffset + 155*1 + 100);
-    (xoffset + 90*1 - 180*1), (yoffset + 155*1 + 100);
-    (xoffset + 90*1 - 180*0), (yoffset + 155*1 + 100);
-    (xoffset + 90*1 + 180*1), (yoffset + 155*1 + 100);
     (xoffset + 90*1 - 180*2 - 89), (yoffset + 155*1 + 55);
+    (xoffset + 90*1 - 180*2), (yoffset + 155*1 + 100);
     (xoffset + 90*1 - 180*2 + 89), (yoffset + 155*1 + 55);
+    (xoffset + 90*1 - 180*1), (yoffset + 155*1 + 100);
     (xoffset + 90*1 - 180*1 + 89), (yoffset + 155*1 + 55);
+    (xoffset + 90*1 - 180*0), (yoffset + 155*1 + 100);
     (xoffset + 90*1 - 180*0 + 89), (yoffset + 155*1 + 55);
+    (xoffset + 90*1 + 180*1), (yoffset + 155*1 + 100);
     (xoffset + 90*1 + 180*1 + 89), (yoffset + 155*1 + 55);
 
-    (xoffset + 90*2 - 180*2), (yoffset + 155*2 + 100);
-    (xoffset + 90*2 - 180*1), (yoffset + 155*2 + 100);
-    (xoffset + 90*2 - 180*0), (yoffset + 155*2 + 100);
     (xoffset + 90*2 - 180*2 - 89), (yoffset + 155*2 + 55);
+    (xoffset + 90*2 - 180*2), (yoffset + 155*2 + 100);
     (xoffset + 90*2 - 180*2 + 89), (yoffset + 155*2 + 55);
+    (xoffset + 90*2 - 180*1), (yoffset + 155*2 + 100);
     (xoffset + 90*2 - 180*1 + 89), (yoffset + 155*2 + 55);
+    (xoffset + 90*2 - 180*0), (yoffset + 155*2 + 100);
     (xoffset + 90*2 - 180*0 + 89), (yoffset + 155*2 + 55);
   ]
 
@@ -309,7 +354,7 @@ module Textures = struct
     List.map2 (fun (x, y) b ->
       (* image_load screen "./control/trans_butt.png" x y *)
       match b with
-      | Catan.None _ -> image_load screen "./buildings/empty.png" x y
+      | Catan.Empty _ -> image_load screen "./buildings/empty.png" x y
       | _            -> image_load screen "./buildings/green_village.png" x y
     ) settlements_coords buildings
   let draw_murzyn screen n =
@@ -351,8 +396,6 @@ module Textures = struct
 end
 
 module Control = struct
-  let order = [Player.Green; Player.Red]
-
   let enable_move_murzyn screen gameState gameObjects =
     let fields = gameObjects.Textures.fields in
     let objLst = List.map (fun e ->
@@ -373,28 +416,6 @@ module Control = struct
         obj
     )
     (Utils.range 19)
-  let rec enable_build_town screen gameState gameObjects =
-    let buildings = gameObjects.Textures.villages in
-    let objLst = List.map (fun e ->
-      let lst = Canvas.coords_get screen e in
-      Textures.image_load screen "./control/button.png" (Int.of_float @@ List.nth lst 0) (Int.of_float @@ List.nth lst 1)
-    ) buildings
-    in List.iter (fun n ->
-      let obj = List.nth objLst n in
-      Canvas.bind ~events:[`ButtonPress] ~fields:[`MouseX; `MouseY]
-        ~action:(fun e ->
-          let lst = gameState.Catan.towns in
-          match List.nth lst n with
-            | None xs ->
-                gameState.towns <- Utils.replace lst n (Catan.Town xs);
-                Canvas.delete screen objLst;
-                Textures.refresh screen gameState gameObjects
-            | _ -> enable_build_town screen gameState gameObjects;
-        )
-        screen
-        obj
-    )
-    (Utils.range 54)
   let rec enable_dice_roll screen gameState gameObjects =
     let d1, d2 = gameObjects.Textures.dices in
     Canvas.delete screen [d1; d2];
@@ -402,14 +423,12 @@ module Control = struct
     let d2 = Textures.image_load screen "./dice/d0.png" 222 74 in
     Canvas.bind ~events:[`ButtonPress]
       ~action:(fun e ->
-        print_string "Rolling... ";
         Canvas.delete screen [d1; d2];
         let n1, n2 = Utils.droll () in
-        print_string @@ Int.to_string (n1+n2) ^ "\n";
         let d1 = Textures.image_load screen ("./dice/d" ^ Int.to_string n1 ^ ".png") 74 74 in
         let d2 = Textures.image_load screen ("./dice/d" ^ Int.to_string n2 ^ ".png") 222 74 in
-        gameState.Catan.dices <- n1+n2;
-        gameObjects.Textures.dices <- d1, d2
+        gameObjects.Textures.dices <- d1, d2;
+        Catan.dice_roll gameState (n1+n2)
       ) screen d1
 
   let rec build_starting_villages screen gameState gameObjects hm =
@@ -417,17 +436,16 @@ module Control = struct
       let coords = List.nth Textures.settlements_coords n in
       let e = List.nth gameState.Catan.towns n in
       match e with
-      | Catan.None _ -> Some ((Textures.image_load screen "./control/button.png" (fst coords) (snd coords)), n)
+      | Catan.Empty _ -> Some ((Textures.image_load screen "./control/button.png" (fst coords) (snd coords)), n)
       | _ -> None
     ) @@ Utils.range Catan.nof_settlements
     in List.iter (fun (obj, idx) ->
       Canvas.bind ~events:[`ButtonPress]
         ~action:(fun _ ->
-          print_string @@ "Building village at position " ^ Int.to_string idx ^ "\n";
           let e = List.nth gameState.Catan.towns idx in
           match e with
-          | Catan.None xs ->
-              gameState.Catan.towns <- Utils.replace gameState.Catan.towns idx (Catan.Village xs);
+          | Catan.Empty xs ->
+              Catan.build_village gameState idx;
               Canvas.delete screen @@ List.map (fun e -> fst e) objLst;
               Textures.refresh screen gameState gameObjects;
               if hm > 1
@@ -453,3 +471,27 @@ let catan =
   Control.start_game mainCanvas 1;
 
   mainLoop () ;;
+
+(* NOTATKI *)
+(* let rec enable_build_town screen gameState gameObjects =
+    let buildings = gameObjects.Textures.villages in
+    let objLst = List.map (fun e ->
+      let lst = Canvas.coords_get screen e in
+      Textures.image_load screen "./control/button.png" (Int.of_float @@ List.nth lst 0) (Int.of_float @@ List.nth lst 1)
+    ) buildings
+    in List.iter (fun n ->
+      let obj = List.nth objLst n in
+      Canvas.bind ~events:[`ButtonPress] ~fields:[`MouseX; `MouseY]
+        ~action:(fun e ->
+          let lst = gameState.Catan.towns in
+          match List.nth lst n with
+            | None xs ->
+                gameState.towns <- Utils.replace lst n (Catan.Town xs);
+                Canvas.delete screen objLst;
+                Textures.refresh screen gameState gameObjects
+            | _ -> enable_build_town screen gameState gameObjects;
+        )
+        screen
+        obj
+    )
+    (Utils.range 54) *)
