@@ -1,5 +1,14 @@
 open Tk
 
+(*
+ TODO:
+  1. Budowa dróg
+  2. Ulepszanie wiosek do miast
+  3. Sensowniejszy handel
+  4. Karty niedorozwoju
+  5. Kosmetyka
+ *)
+
 module Utils = struct
   let range n =
     let rec _range i lst =
@@ -22,8 +31,9 @@ end
 module Catan = struct
   (* TYPY *)
   type color =
-    | Green
     | Red
+    | Green
+    | Blue
   type resources =
     | RWood  of int
     | RClay  of int
@@ -57,6 +67,7 @@ module Catan = struct
     mutable color       : color;
   }
   type t = {
+            nofp    : int;
     mutable tour    : color;
     mutable board   : field list;
     mutable towns   : settlement list;
@@ -67,7 +78,14 @@ module Catan = struct
   }
 
   (* TABLICEC I STAŁE *)
-  let order = [Green; Red]
+  let sblocks = [|
+    "./blocks/sblocks/wood.png";
+    "./blocks/sblocks/clay.png";
+    "./blocks/sblocks/stone.png";
+    "./blocks/sblocks/wheat.png";
+    "./blocks/sblocks/sheep.png";
+  |]
+  let order = [Red; Green; Blue]
   let nof_settlements = 54
   let numbers = [5;2;6;3;8;10;9;12;11;4;8;10;9;4;5;6;3;11]
   let fields = Utils.shuffle ['D';'D';'D';'D';'G';'G';'G';'S';'S';'S';'S';'K';'K';'K';'O';'O';'O';'O';'P']
@@ -75,8 +93,9 @@ module Catan = struct
   (* FUNKCJE POMOCNICZE *)
   let color2number c =
     match c with
-      | Green -> 0
-      | Red   -> 1
+    | Red   -> 0
+    | Green -> 1
+    | Blue  -> 2
   let resource2str f =
     match f with
     | RWood  _ -> "wood"
@@ -94,8 +113,9 @@ module Catan = struct
     | Desert  -> "gówno"
   let color2str c =
     match c with
-    | Green -> "green"
     | Red   -> "red"
+    | Green -> "green"
+    | Blue  -> "blue"
   let get_desert_idx board =
     let rec _aux n board =
       match List.nth board 0 with
@@ -130,12 +150,24 @@ module Catan = struct
 
   (* FUNKCJE GŁOWNE *)
   let first_player gameState =
-    gameState.tour <- Green
+    gameState.tour <- Red
   let next_player gameState =
-    let current_player = gameState.tour in
-    match current_player with
-      | Green -> gameState.tour <- Red
-      | Red   -> gameState.tour <- Green
+    if gameState.nofp != 1
+      then if gameState.nofp = 2
+      then begin
+        let current_player = gameState.tour in
+        match current_player with
+          | Red   -> gameState.tour <- Green
+          | Green -> gameState.tour <- Red
+          | _ -> failwith ""
+      end
+      else begin
+        let current_player = gameState.tour in
+        match current_player with
+          | Red   -> gameState.tour <- Green
+          | Green -> gameState.tour <- Blue
+          | Blue  -> gameState.tour <- Red
+      end
   let move_murzyn gameState position =
     print_string @@ "Moving murzyn to position " ^ Int.to_string position ^ "\n";
     gameState.murzyn <- position
@@ -165,6 +197,16 @@ module Catan = struct
       | Empty _ -> ()
       | Blocked -> ()
     ) gameState.towns
+  let trade gameState offer claim =
+    print_string "deal\n";
+    let player = List.nth gameState.players @@ color2number gameState.tour in
+    let rs = player.resources in
+    rs.wood  <- rs.wood - offer.(0) + claim.(0);
+    rs.clay  <- rs.clay - offer.(1) + claim.(1);
+    rs.stone <- rs.stone - offer.(2) + claim.(2);
+    rs.wheat <- rs.wheat - offer.(3) + claim.(3);
+    rs.sheep <- rs.sheep - offer.(4) + claim.(4);
+    true
 
   (* FUNKCJE INICJALIZUJĄCE *)
   let settlementsInit board =
@@ -247,20 +289,22 @@ module Catan = struct
   let playerInit n =
     {
       settlements = [];
-      resources   = {wood = 2; clay = 2; stone = 0; wheat = 2; sheep = 2};
+      resources   = {wood = 4; clay = 4; stone = 0; wheat = 4; sheep = 4};
+      (* resources   = {wood = 2; clay = 2; stone = 0; wheat = 2; sheep = 2}; *)
       points      = 0;
       roads       = ();
-      color       = match n with 0 -> Green | 1 -> Red | _ -> failwith "Ooops! Wrong player number!\n";
+      color       = match n with 0 -> Red | 1 -> Green | 2 -> Blue | _ -> failwith "Ooops! Wrong player number!\n";
     }
-  let gameInit () =
+  let gameInit numberOfPlayers =
     let board = boardInit () in {
+      nofp    = numberOfPlayers;
       board   = board;
       towns   = settlementsInit board;
       roads   = ();
       murzyn  = get_desert_idx board;
-      dices   = 0, 0;
+      dices   = 6, 6;
       tour    = List.nth order 0;
-      players = [playerInit 0; playerInit 1];
+      players = List.map (fun n -> playerInit n) @@ Utils.range numberOfPlayers;
     }
 
 end
@@ -271,6 +315,7 @@ module Textures = struct
     mutable resources   : (tagOrId * tagOrId) list;
     mutable avatar      : tagOrId;
     mutable settlements : tagOrId * tagOrId;
+    mutable background  : tagOrId;
   }
   type t = {
     mutable background : tagOrId;
@@ -281,7 +326,7 @@ module Textures = struct
     mutable roads      : tagOrId list;
     mutable dices      : tagOrId * tagOrId;
     mutable players    : player_info list;
-    mutable current_pl : tagOrId;
+    (* mutable current_pl : tagOrId; *)
   }
 
   (* TABLICE I STAŁE *)
@@ -384,7 +429,7 @@ module Textures = struct
     Canvas.configure_image screen img_canvas ~image:img;
     img_canvas
   let draw_background screen =
-    draw_image screen "./imgs/background.png" (fst resolution / 2) (snd resolution / 2)
+    draw_image screen "./imgs/wood.png" (fst resolution / 2) (snd resolution / 2)
   let draw_board screen board =
     let field2img f =
       match f with
@@ -419,8 +464,8 @@ module Textures = struct
       match b with
       | Catan.Village (_, c) -> draw_image screen ("./buildings/player" ^ Int.to_string (Catan.color2number c) ^ "village.png") x y
       | Catan.Town    _ -> failwith "Ooops! We don't have towns yet!\n"
-      | Catan.Empty   _ -> draw_image screen "./buildings/empty.png" x y
-      | Catan.Blocked   -> draw_image screen "./buildings/empty.png" x y
+      | Catan.Empty   _ -> draw_image screen "./buildings/none.png" x y
+      | Catan.Blocked   -> draw_image screen "./buildings/blocked.png" x y
     ) settlements_coords buildings
   let draw_murzyn screen n =
     draw_image screen "./blocks/murzyn.png" (fst @@ List.nth field_coords n) (snd @@ List.nth field_coords n)
@@ -428,49 +473,54 @@ module Textures = struct
     Canvas.delete screen [objLst.murzyn];
     draw_murzyn screen n
   let draw_dices screen (n1, n2) =
-    let d1 = draw_image screen ("./dice/d" ^ Int.to_string n1 ^ ".png") 74 74 in
-    let d2 = draw_image screen ("./dice/d" ^ Int.to_string n2 ^ ".png") 222 74 in
+    let d1 = draw_image screen ("./dice/wd" ^ Int.to_string n1 ^ ".png") 85 85 in
+    let d2 = draw_image screen ("./dice/wd" ^ Int.to_string n2 ^ ".png") 235 85 in
     d1, d2
-  let draw_player screen player =
+  let draw_player screen tour player =
     let n = Catan.color2number player.Catan.color + 1 in
-    let avatar = draw_image screen ("./players/player" ^ (Int.to_string @@ n-1) ^ ".png") (1920-110) (110*n + 150*(n-1)) in
+    let back   = if tour = player.color
+                    then draw_image screen "./imgs/current_player.png" (1920-210) (135 + 260*n - 260)
+                    else draw_image screen "./imgs/player_background.png" (1920-210) (135 + 260*n - 260)
+    in
+    let avatar = draw_image screen ("./players/player" ^ (Int.to_string @@ n-1) ^ ".png") (1920-135) (135 + 260*n - 260) in
     let rs = player.Catan.resources in
     let new_rs = [
-      (let img = draw_image screen "./blocks/sblocks/wood.png"  (1920-210+20)  (200*n + 40 + (60*n-60)) in
-       let t = Canvas.create_text ~x:(1920-210+20) ~y:(200*n + 44 + (60*n-60)) ~font:"Helvetica 28 bold" ~text:(Int.to_string rs.Catan.wood) screen in
+      (let img = draw_image screen "./blocks/sblocks/wood.png" (1920-265-00) (135 + 260*n - 260 - 70) in
+       let t = Canvas.create_text ~x:(1920-265-00) ~y:(135 + 260*n - 260 - 66) ~font:"Helvetica 28 bold" ~text:(Int.to_string rs.Catan.wood) screen in
        Canvas.configure_text screen t;
        img, t);
-      (let img = draw_image screen "./blocks/sblocks/clay.png"  (1920-210+60)  (200*n + 40 + (60*n-60)) in
-       let t = Canvas.create_text ~x:(1920-210+60) ~y:(200*n + 44 + (60*n-60)) ~font:"Helvetica 28 bold" ~text:(Int.to_string rs.Catan.clay) screen in
+      (let img = draw_image screen "./blocks/sblocks/clay.png"  (1920-265-20) (135 + 260*n - 260 - 35) in
+       let t = Canvas.create_text ~x:(1920-265-20) ~y:(135 + 260*n - 260 - 31) ~font:"Helvetica 28 bold" ~text:(Int.to_string rs.Catan.clay) screen in
        Canvas.configure_text screen t;
        img, t);
-      (let img = draw_image screen "./blocks/sblocks/stone.png"  (1920-210+100)  (200*n + 40 + (60*n-60)) in
-       let t = Canvas.create_text ~x:(1920-210+100) ~y:(200*n + 44 + (60*n-60)) ~font:"Helvetica 28 bold" ~text:(Int.to_string rs.Catan.stone) screen in
+      (let img = draw_image screen "./blocks/sblocks/stone.png"  (1920-265-00) (135 + 260*n - 260) in
+       let t = Canvas.create_text ~x:(1920-265-00) ~y:(135 + 260*n - 260 + 4) ~font:"Helvetica 28 bold" ~text:(Int.to_string rs.Catan.stone) screen in
        Canvas.configure_text screen t;
        img, t);
-      (let img = draw_image screen "./blocks/sblocks/wheat.png"  (1920-210+140)  (200*n + 40 + (60*n-60)) in
-       let t = Canvas.create_text ~x:(1920-210+140) ~y:(200*n + 44 + (60*n-60)) ~font:"Helvetica 28 bold" ~text:(Int.to_string rs.Catan.wheat) screen in
+      (let img = draw_image screen "./blocks/sblocks/wheat.png"  (1920-265-20) (135 + 260*n - 260 + 35) in
+       let t = Canvas.create_text ~x:(1920-265-20) ~y:(135 + 260*n - 260 + 39) ~font:"Helvetica 28 bold" ~text:(Int.to_string rs.Catan.wheat) screen in
        Canvas.configure_text screen t;
        img, t);
-      (let img = draw_image screen "./blocks/sblocks/sheep.png"  (1920-210+180)  (200*n + 40 + (60*n-60)) in
-       let t = Canvas.create_text ~x:(1920-210+180) ~y:(200*n + 44 + (60*n-60)) ~font:"Helvetica 28 bold" ~text:(Int.to_string rs.Catan.sheep) screen in
+      (let img = draw_image screen "./blocks/sblocks/sheep.png"  (1920-265-00) (135 + 260*n - 260 + 70) in
+       let t = Canvas.create_text ~x:(1920-265-00) ~y:(135 + 260*n - 260 + 74) ~font:"Helvetica 28 bold" ~text:(Int.to_string rs.Catan.sheep) screen in
        Canvas.configure_text screen t;
        img, t)
     ] in
     let settlements = player.Catan.settlements in
     let settlements_gui =
-      (let img = draw_image screen ("./buildings/player" ^ (Int.to_string @@ Catan.color2number player.Catan.color) ^ "village.png")  (1920-250)  (60 + 250*n - 250) in
-       let t = Canvas.create_text ~x:(1920-250) ~y:(65 + 250*n - 250) ~font:"Helvetica 28 bold" ~text:(Int.to_string @@ List.length settlements) screen in
+      (let img = draw_image screen ("./players/player" ^ (Int.to_string @@ Catan.color2number player.Catan.color) ^ "c.png")  (1920-350) (135 + 260*n - 260) in
+       let t = Canvas.create_text ~x:(1920-350) ~y:(135 + 260*n - 256) ~font:"Helvetica 28 bold" ~text:(Int.to_string @@ List.length settlements) screen in
        Canvas.configure_text screen t;
        img, t)
     in
     {
       avatar = avatar;
       resources = new_rs;
+      background = back;
       settlements = settlements_gui;
     }
   let draw_info screen color =
-    draw_image screen ("./players/player" ^ Int.to_string (Catan.color2number color) ^ "c.png") 340 74
+    draw_image screen ("./players/player" ^ Int.to_string (Catan.color2number color) ^ "c.png") 360 85
 
   let render screen gameState =
     let background = draw_background screen in
@@ -479,10 +529,10 @@ module Textures = struct
     let buildings  = draw_building   screen gameState.Catan.towns  in
     let murzyn     = draw_murzyn     screen gameState.Catan.murzyn in
     let dices      = draw_dices      screen gameState.Catan.dices in
-    let player1    = draw_player     screen @@ List.nth gameState.Catan.players 0 in
-    let player2    = draw_player     screen @@ List.nth gameState.Catan.players 1 in
-    let curr_pl    = draw_info       screen gameState.Catan.tour in
+    let players    = List.map (fun n -> draw_player screen gameState.tour @@ List.nth gameState.Catan.players n) @@ Utils.range gameState.Catan.nofp in
+    (* let curr_pl    = draw_info       screen gameState.Catan.tour in *)
     let _ = draw_image screen "./control/trans_bob.png" 74 1006 in
+    let _ = draw_image screen "./control/trans_trade.png" 74 (1006-128-10) in
     pack [screen];
     {
       background = background;
@@ -492,8 +542,8 @@ module Textures = struct
       fields     = fields;
       roads      = [];
       dices      = dices;
-      players    = [player1; player2];
-      current_pl = curr_pl;
+      players    = players;
+      (* current_pl = curr_pl; *)
     }
   let clear_screen screen gameObjects =
     Canvas.delete screen [gameObjects.background];
@@ -503,6 +553,7 @@ module Textures = struct
     Canvas.delete screen gameObjects.roads;
     List.iter (fun p ->
       Canvas.delete screen [p.avatar];
+      Canvas.delete screen [p.background];
       List.iter (fun (r, t) ->
         Canvas.delete screen [r];
         Canvas.delete screen [t]
@@ -518,11 +569,12 @@ module Control = struct
   let rec end_tour screen gameState gameObjects =
     failwith "not implemented\n"
   and enable_standatd_tour screen gameState gameObjects =
+    Textures.refresh screen gameState gameObjects;
     enable_build_village screen gameState gameObjects;
+    enable_trade screen gameState gameObjects;
     (* Budowa drogi *)
     (* Kupno karty niedorozwoju *)
     (* Wykorzystanie karty niedorozwoju *)
-    (* Handel *)
     (* Przycisk końca tury *)
     enable_dice_roll screen gameState gameObjects
   and enable_move_murzyn screen gameState gameObjects =
@@ -575,7 +627,7 @@ module Control = struct
       let coords = List.nth Textures.settlements_coords n in
       let e = List.nth gameState.Catan.towns n in
       match e with
-      | Catan.Empty _ -> Some ((Textures.draw_image screen "./control/button.png" (fst coords) (snd coords)), n)
+      | Catan.Empty _ -> Some ((Textures.draw_image screen "./control/empty.png" (fst coords) (snd coords)), n)
       | _ -> None
     ) @@ Utils.range Catan.nof_settlements
     in List.iter (fun (obj, idx) ->
@@ -591,13 +643,106 @@ module Control = struct
           | _ -> failwith "Ooops! Shouldn't get here... [err7]\n"
         ) screen obj
     ) objLst
+  and enable_trade screen gameState gameObjects =
+    let obj = Textures.draw_image screen "./control/trade.png" 74 (1006-128-10) in
+    Canvas.bind ~events:[`ButtonPress]
+      ~action:(fun _ ->
+        Canvas.delete screen [obj];
+        trade_offer screen gameState gameObjects [|0;0;0;0;0|] [|0;0;0;0;0|]
+        (* Catan.trade gameState *)
+        (* Textures.refresh screen gameState gameObjects *)
+      ) screen obj
+  and trade_offer screen gameState gameObjects claim offer =
+    let accept = Textures.draw_image screen "./control/accept.png" (256) (1080/4-25) in
+    let decline = Textures.draw_image screen "./control/decline.png" (320) (1080/4-25) in
+    let take_controls = List.map (fun i ->
+      Textures.draw_image screen Catan.sblocks.(i) (30+40*i) (1080/4)
+    ) @@ Utils.range 5 in
+    let take_numbers = List.map (fun i ->
+      let t = Canvas.create_text ~x:(30+40*i) ~y:(1080/4+4) ~font:"Helvetica 28 bold" ~text:(Int.to_string claim.(i)) screen in
+      Canvas.configure_text screen t;
+      t
+    ) @@ Utils.range 5 in
+
+    let give_controls = List.map (fun i ->
+      Textures.draw_image screen Catan.sblocks.(i) (30+40*i) (1080/4-50)
+    ) @@ Utils.range 5 in
+    let give_numbers = List.map (fun i ->
+      let t = Canvas.create_text ~x:(30+40*i) ~y:(1080/4-46) ~font:"Helvetica 28 bold" ~text:(Int.to_string offer.(i)) screen in
+      Canvas.configure_text screen t;
+      t
+    ) @@ Utils.range 5
+    in
+    Canvas.bind ~events:[`ButtonPress]
+      ~action:(fun _ ->
+        Canvas.delete screen take_numbers;
+        Canvas.delete screen give_numbers;
+        Canvas.delete screen take_controls;
+        Canvas.delete screen give_controls;
+        Canvas.delete screen [accept; decline];
+        enable_standatd_tour screen gameState gameObjects
+      ) screen decline;
+    Canvas.bind ~events:[`ButtonPress]
+      ~action:(fun _ ->
+        Canvas.delete screen take_numbers;
+        Canvas.delete screen give_numbers;
+        Canvas.delete screen take_controls;
+        Canvas.delete screen give_controls;
+        Canvas.delete screen [accept; decline];
+        if Catan.trade gameState offer claim
+          then enable_standatd_tour screen gameState gameObjects
+          else trade_offer screen gameState gameObjects claim offer
+      ) screen accept;
+    List.iter (fun i ->
+      Canvas.bind ~events:[`ButtonPress]
+        ~action:(fun _ ->
+          Canvas.delete screen take_numbers;
+          Canvas.delete screen give_numbers;
+          Canvas.delete screen take_controls;
+          Canvas.delete screen give_controls;
+          Canvas.delete screen [accept; decline];
+          claim.(i) <- claim.(i)+1;
+          trade_offer screen gameState gameObjects claim offer
+        ) screen @@ List.nth take_controls i;
+      Canvas.bind ~events:[`ButtonPress]
+        ~action:(fun _ ->
+          Canvas.delete screen take_numbers;
+          Canvas.delete screen give_numbers;
+          Canvas.delete screen take_controls;
+          Canvas.delete screen give_controls;
+          Canvas.delete screen [accept; decline];
+          claim.(i) <- claim.(i)+1;
+          trade_offer screen gameState gameObjects claim offer
+        ) screen @@ List.nth take_numbers i;
+
+      Canvas.bind ~events:[`ButtonPress]
+        ~action:(fun _ ->
+          Canvas.delete screen take_numbers;
+          Canvas.delete screen give_numbers;
+          Canvas.delete screen take_controls;
+          Canvas.delete screen give_controls;
+          Canvas.delete screen [accept; decline];
+          offer.(i) <- offer.(i)+1;
+          trade_offer screen gameState gameObjects claim offer
+        ) screen @@ List.nth give_numbers i;
+      Canvas.bind ~events:[`ButtonPress]
+        ~action:(fun _ ->
+          Canvas.delete screen take_numbers;
+          Canvas.delete screen give_numbers;
+          Canvas.delete screen take_controls;
+          Canvas.delete screen give_controls;
+          Canvas.delete screen [accept; decline];
+          offer.(i) <- offer.(i)+1;
+          trade_offer screen gameState gameObjects claim offer
+        ) screen @@ List.nth give_controls i;
+    ) @@ Utils.range 5
 
   let rec starting_buildings screen gameState gameObjects hm =
     let objLst = List.filter_map (fun n ->
       let coords = List.nth Textures.settlements_coords n in
       let e = List.nth gameState.Catan.towns n in
       match e with
-      | Catan.Empty _ -> Some ((Textures.draw_image screen "./control/button.png" (fst coords) (snd coords)), n)
+      | Catan.Empty _ -> Some ((Textures.draw_image screen "./control/empty.png" (fst coords) (snd coords)), n)
       | _ -> None
     ) @@ Utils.range Catan.nof_settlements
     in List.iter (fun (obj, idx) ->
@@ -608,14 +753,15 @@ module Control = struct
           | Catan.Empty xs ->
               Catan.build_village gameState idx;
               Canvas.delete screen @@ List.map (fun e -> fst e) objLst;
-              Textures.refresh screen gameState gameObjects;
               if hm > 1
                 then begin
                   Catan.next_player gameState;
+                  Textures.refresh screen gameState gameObjects;
                   starting_buildings screen gameState gameObjects (hm - 1)
                 end
                 else begin
-                  Catan.first_player gameState;
+                  (* Catan.first_player gameState; *)
+                  Textures.refresh screen gameState gameObjects;
                   enable_dice_roll screen gameState gameObjects
                 end
           | _ -> failwith "Ooops! Shouldn't get here... [err7]\n"
@@ -624,7 +770,7 @@ module Control = struct
 
   let start_game screen numberOfPlayers =
     (* Główny obiekt trzymający stan gry *)
-    let gameState   = Catan.gameInit () in
+    let gameState   = Catan.gameInit numberOfPlayers in
     (* Główny obiekt trzymający wszystkie narysowane obiekty (tagOrId) *)
     let gameObjects = Textures.render screen gameState in
     (* Korzeń drzwa eventów *)
@@ -635,6 +781,6 @@ let catan =
   let top = openTk () in
   Wm.title_set top "CATAN";
   let mainCanvas = Canvas.create ~width:1920 ~height:1080 top in
-  Control.start_game mainCanvas 2;
+  Control.start_game mainCanvas 3;
 
   mainLoop () ;;
