@@ -5,13 +5,28 @@ open Tk
   0. Sprzątnąć gówniany kod
   1. Budowa dróg [DONE]
   2. Budowa miast [DONE]
-  3. Sensowniejszy handel (ikonka accept dla każdego gracza)
-  4. Murzyn (murzyn kradnie i blokuje)
-  5. Punkty zwycięstwa (wsie, miasta, autostrada, władza rycerska)
-  6. Karty niedorozwoju (rycerz, budowa drogi, pobranie surowców, monopol, punkt zwycięstwa)
+  3. Handel
+      - Ikonka accept dla każdego gracza [DONE]
+      - Handel z bankiem [DONE]
+      - Porty [!]
+  4. Murzyn
+      - Kradnie [DONE]
+      - Blokuje [!!!]
+      - Wyrzuca surowce [!!]
+  5. Punkty zwycięstwa
+      - Wsie [DONE]
+      - Miasta [DONE]
+      - Autostrada [!!]
+      - Władza rycerska [!]
+  6. Karty niedorozwoju (rycerz, budowa drogi, pobranie surowców, monopol, punkt zwycięstwa) [!!]
   7. Kosmetyka
-  8. Porty
-  9. AI
+  8. AI
+ *)
+(*
+ BUGI:
+  0. Można budować miasta na cudzych wsiach [SOLVED]
+  1. Kontrolki [SOLVED]
+  2. Można budować wsie na polach bez drogi [SOLVED]
  *)
 
 module Utils = struct
@@ -30,7 +45,10 @@ module Utils = struct
     List.mapi (fun i x -> if i = pos then a else x) l;;
   let droll () =
     Random.int 6 + 1, Random.int 6 + 1
-
+  let rec find_idx elem lst =
+    match lst with
+    | [] -> raise (Failure "Not Found")
+    | h :: t -> if elem = h then 0 else 1 + find_idx elem t
 end
 
 module Catan = struct
@@ -68,24 +86,30 @@ module Catan = struct
     mutable sheep : int;
   }
   type player = {
-    mutable settlements : int list;
-    mutable resources   : player_resources;
-    mutable points      : int;
-    mutable roads       : int list;
     mutable color       : color;
+    mutable resources   : player_resources;
+    mutable settlements : int list;
+    mutable roads       : int list;
+    mutable points      : int;
   }
   type t = {
-            nofp    : int;
-    mutable tour    : color;
-    mutable board   : field list;
-    mutable towns   : settlement list;
-    mutable roads   : road list;
-    mutable murzyn  : int;
-    mutable dices   : int * int;
-    mutable players : player list;
+    numberOfPlayers     : int;
+    mutable players     : player list;
+    mutable board       : field list;
+    mutable settlements : settlement list;
+    mutable roads       : road list;
+    mutable tour        : color;
+    mutable murzyn      : int;
+    mutable dices       : int * int;
   }
 
   (* TABLICEC I STAŁE *)
+  let nof_settlements = 54
+  let nof_roads = 72
+  let order = [Red; Green; Blue]
+  let first_player = List.nth order 0
+  let numbers = [5;2;6;3;8;10;9;12;11;4;8;10;9;4;5;6;3;11]
+  let fields = Utils.shuffle ['D';'D';'D';'D';'G';'G';'G';'S';'S';'S';'S';'K';'K';'K';'O';'O';'O';'O';'P']
   let sblocks = [|
     "./blocks/sblocks/wood.png";
     "./blocks/sblocks/clay.png";
@@ -93,9 +117,27 @@ module Catan = struct
     "./blocks/sblocks/wheat.png";
     "./blocks/sblocks/sheep.png";
   |]
-  let order = [Red; Green; Blue]
-  let nof_settlements = 54
-  let nof_roads = 72
+  let fields_buildplaces = [
+    (*  0 *) [0;1;2; 8; 9;10];
+    (*  1 *) [2;3;4;10;11;12];
+    (*  2 *) [4;5;6;12;13;14];
+    (*  3 *) [ 7; 8; 9;17;18;19];
+    (*  4 *) [ 9;10;11;19;20;21];
+    (*  5 *) [11;12;13;21;22;23];
+    (*  6 *) [13;14;15;23;24;25];
+    (*  7 *) [16;17;18;27;28;29];
+    (*  8 *) [18;19;20;29;30;31];
+    (*  9 *) [20;21;22;31;32;33];
+    (* 10 *) [22;23;24;33;34;35];
+    (* 11 *) [24;25;26;35;36;37];
+    (* 12 *) [28;29;30;38;39;40];
+    (* 13 *) [30;31;32;40;41;42];
+    (* 14 *) [32;33;34;42;43;44];
+    (* 15 *) [34;35;36;44;45;46];
+    (* 16 *) [39;40;41;47;48;49];
+    (* 17 *) [41;42;43;49;50;51];
+    (* 18 *) [43;44;45;51;52;53];
+  ]
   let blocking = [
     (*  0 *) [1;8];
     (*  1 *) [0;2];
@@ -157,8 +199,6 @@ module Catan = struct
     (* 52 *) [51;53];
     (* 53 *) [45;52];
   ]
-  let numbers = [5;2;6;3;8;10;9;12;11;4;8;10;9;4;5;6;3;11]
-  let fields = Utils.shuffle ['D';'D';'D';'D';'G';'G';'G';'S';'S';'S';'S';'K';'K';'K';'O';'O';'O';'O';'P']
   let roads = [
     0,1;   1,2;   2,3;   3,4;   4,5;   5,6;
     0,8;   2,10;  4,12;  6,14;
@@ -175,10 +215,7 @@ module Catan = struct
 
   (* FUNKCJE POMOCNICZE *)
   let color2number c =
-    match c with
-    | Red   -> 0
-    | Green -> 1
-    | Blue  -> 2
+    Utils.find_idx c order
   let resource2str f =
     match f with
     | RWood  _ -> "wood"
@@ -186,19 +223,12 @@ module Catan = struct
     | RStone _ -> "stone"
     | RWheat _ -> "wheat"
     | RSheep _ -> "sheep"
-  let field2str f =
-    match f with
-    | Wood  _ -> "wood"
-    | Clay  _ -> "clay"
-    | Stone _ -> "stone"
-    | Wheat _ -> "wheat"
-    | Sheep _ -> "sheep"
-    | Desert  -> "gówno"
   let color2str c =
     match c with
     | Red   -> "red"
     | Green -> "green"
     | Blue  -> "blue"
+
   let get_desert_idx board =
     let rec _aux n board =
       match List.nth board 0 with
@@ -224,31 +254,44 @@ module Catan = struct
       | RStone i -> r.stone <- r.stone+1
       | RWheat i -> r.wheat <- r.wheat+1
       | RSheep i -> r.sheep <- r.sheep+1
-  let can_build_village gameState =
-    let player = List.nth gameState.players @@ color2number gameState.tour in
-    let rs = player.resources in
-    if List.for_all (fun b -> b) [rs.wood > 0; rs.clay > 0; rs.sheep > 0; rs.wheat > 0]
-      then true
-      else false
-  let can_build_road gameState =
+  let can_afford_road gameState =
     let player = List.nth gameState.players @@ color2number gameState.tour in
     let rs = player.resources in
     if List.for_all (fun b -> b) [rs.wood > 0; rs.clay > 0]
       then true
       else false
-  let can_build_town gameState =
+  let can_afford_village gameState =
+    let player = List.nth gameState.players @@ color2number gameState.tour in
+    let rs = player.resources in
+    if List.for_all (fun b -> b) [rs.wood > 0; rs.clay > 0; rs.sheep > 0; rs.wheat > 0]
+      then true
+      else false
+  let can_afford_town gameState =
     let player = List.nth gameState.players @@ color2number gameState.tour in
     let rs = player.resources in
     if List.for_all (fun b -> b) [rs.wheat >= 2; rs.stone >= 3]
       then true
       else false
-  let is_trade_offer_valid gameState offer claim trader =
-    let player = List.nth gameState.players @@ color2number gameState.tour in
-    let rs = player.resources in
-    if List.for_all (fun b -> b) [rs.wood >= offer.(0); rs.clay >= offer.(1); rs.stone >= offer.(2); rs.wheat >= offer.(3); rs.sheep >= offer.(4)]
-      then true
-      else false
-  let verify_road_position gameState position =
+  let is_valid_trade_offer gameState offer claim trader =
+    if trader = (-1)
+      then begin
+        if 4*(Array.fold_left (+) 0 claim) = (Array.fold_left (+) 0 offer)
+          then true
+          else false
+      end
+      else begin
+        let player = List.nth gameState.players @@ color2number gameState.tour in
+        let rs = player.resources in
+        let player2 = List.nth gameState.players trader in
+        let rs2 = player2.resources in
+        if List.mem false
+            [rs.wood >= offer.(0); rs.clay >= offer.(1); rs.stone >= offer.(2); rs.wheat >= offer.(3); rs.sheep >= offer.(4);
+            rs2.wood >= claim.(0); rs2.clay >= claim.(1); rs2.stone >= claim.(2); rs2.wheat >= claim.(3); rs2.sheep >= claim.(4)]
+          then false
+          else List.mem true [offer.(0) > 0; offer.(1) > 0; offer.(2) > 0; offer.(3) > 0; offer.(4) > 0]
+              && List.mem true [claim.(0) > 0; claim.(1) > 0; claim.(2) > 0; claim.(3) > 0; claim.(4) > 0]
+      end
+  let is_valid_road_position gameState position =
     let v1, v2 = List.nth roads position in
     let player = List.nth gameState.players @@ color2number gameState.tour in
     let buildings = player.settlements in
@@ -262,40 +305,76 @@ module Catan = struct
           let w1, w2 = List.nth roads r in
           List.mem true [v1 = w1; v1 = w2; v2 = w1; v2 = w2]
         ) pl_roads
+  let is_valid_village_position gameState position =
+    let player = List.nth gameState.players @@ color2number gameState.tour in
+    let plr = player.roads in
+    let lst = List.map (fun i ->
+      let n1, n2 = List.nth roads i in
+      if position = n1 || position = n2
+        then true
+        else false
+    ) plr
+    in List.mem true lst
 
   (* FUNKCJE GŁOWNE *)
-  let first_player gameState =
-    gameState.tour <- Red
+  let rec steal_from gameState c =
+    let player = List.nth gameState.players @@ color2number gameState.tour in
+    let rs = player.resources in
+    let victim = List.nth gameState.players @@ color2number c in
+    let vrs = victim.resources in
+    let rand = Random.int 5 in
+    if List.mem true [vrs.wood > 0; vrs.clay > 0; vrs.stone > 0; vrs.wheat > 0; vrs.sheep > 0]
+      then
+    match rand with
+    | 0 -> if vrs.wood > 0
+            then begin
+              victim.resources <- {wood = vrs.wood-1; clay = vrs.clay; stone = vrs.stone; wheat = vrs.wheat; sheep = vrs.sheep};
+              player.resources <- {wood = rs.wood+1; clay = rs.clay; stone = rs.stone; wheat = rs.wheat; sheep = rs.sheep}
+            end
+            else begin steal_from gameState c end
+    | 1 -> if vrs.clay > 0
+            then begin
+              victim.resources <- {wood = vrs.wood; clay = vrs.clay-1; stone = vrs.stone; wheat = vrs.wheat; sheep = vrs.sheep};
+              player.resources <- {wood = rs.wood; clay = rs.clay+1; stone = rs.stone; wheat = rs.wheat; sheep = rs.sheep}
+            end
+            else steal_from gameState c
+    | 2 -> if vrs.stone > 0
+            then begin
+              victim.resources <- {wood = vrs.wood; clay = vrs.clay; stone = vrs.stone-1; wheat = vrs.wheat; sheep = vrs.sheep};
+              player.resources <- {wood = rs.wood; clay = rs.clay; stone = rs.stone+1; wheat = rs.wheat; sheep = rs.sheep}
+            end
+            else steal_from gameState c
+    | 3 -> if vrs.wheat > 0
+            then begin
+              victim.resources <- {wood = vrs.wood; clay = vrs.clay; stone = vrs.stone; wheat = vrs.wheat-1; sheep = vrs.sheep};
+              player.resources <- {wood = rs.wood; clay = rs.clay; stone = rs.stone; wheat = rs.wheat+1; sheep = rs.sheep}
+            end
+            else steal_from gameState c
+    | 4 -> if vrs.sheep > 0
+            then begin
+              victim.resources <- {wood = vrs.wood; clay = vrs.clay; stone = vrs.stone; wheat = vrs.wheat; sheep = vrs.sheep-1};
+              player.resources <- {wood = rs.wood; clay = rs.clay; stone = rs.stone; wheat = rs.wheat; sheep = rs.sheep+1}
+            end
+            else steal_from gameState c
+    | _ -> failwith "out of range [err 15]"
   let next_player gameState =
-    if gameState.nofp != 1
-      then if gameState.nofp = 2
-      then begin
-        let current_player = gameState.tour in
-        match current_player with
-          | Red   -> gameState.tour <- Green
-          | Green -> gameState.tour <- Red
-          | _ -> failwith ""
-      end
-      else begin
-        let current_player = gameState.tour in
-        match current_player with
-          | Red   -> gameState.tour <- Green
-          | Green -> gameState.tour <- Blue
-          | Blue  -> gameState.tour <- Red
-      end
+    let current_player = color2number gameState.tour in
+    if current_player+1 = List.length order
+      then gameState.tour <- first_player
+      else gameState.tour <- List.nth order (current_player+1)
   let move_murzyn gameState position =
     print_string @@ "Moving murzyn to position " ^ Int.to_string position ^ "\n";
     gameState.murzyn <- position
   let build_village gameState position =
-    print_string @@ "Player " ^ color2str gameState.tour ^ " builts a village at position " ^ Int.to_string position ^ "\n";
-    let place = List.nth gameState.towns position in
+    print_string @@ "Player " ^ color2str gameState.tour ^ " builds a village at position " ^ Int.to_string position ^ "\n";
+    let place = List.nth gameState.settlements position in
     match place with
       | Empty x ->
           List.iter (fun i ->
-            gameState.towns <- Utils.replace gameState.towns i Blocked
+            gameState.settlements <- Utils.replace gameState.settlements i Blocked
           ) @@ List.nth blocking position;
-          let settlements = gameState.towns in
-          gameState.towns <- Utils.replace settlements position (Village (x, gameState.tour));
+          let settlements = gameState.settlements in
+          gameState.settlements <- Utils.replace settlements position (Village (x, gameState.tour));
           let player_info = List.nth gameState.players @@ color2number gameState.tour in
           let rs = player_info.resources in
           player_info.settlements <- List.append player_info.settlements [position];
@@ -303,15 +382,15 @@ module Catan = struct
           player_info.points <- player_info.points + 1
       | _ -> failwith "Ooops! You can build village only on empty field!\n"
   let build_town gameState position =
-    print_string @@ "Player " ^ color2str gameState.tour ^ " builts a town at position " ^ Int.to_string position ^ "\n";
-    let place = List.nth gameState.towns position in
+    print_string @@ "Player " ^ color2str gameState.tour ^ " builds a town at position " ^ Int.to_string position ^ "\n";
+    let place = List.nth gameState.settlements position in
     match place with
       | Village (x,c) ->
           List.iter (fun i ->
-            gameState.towns <- Utils.replace gameState.towns i Blocked
+            gameState.settlements <- Utils.replace gameState.settlements i Blocked
           ) @@ List.nth blocking position;
-          let settlements = gameState.towns in
-          gameState.towns <- Utils.replace settlements position (Town (x, gameState.tour));
+          let settlements = gameState.settlements in
+          gameState.settlements <- Utils.replace settlements position (Town (x, gameState.tour));
           let player_info = List.nth gameState.players @@ color2number gameState.tour in
           let rs = player_info.resources in
           player_info.settlements <- List.append player_info.settlements [position];
@@ -319,7 +398,7 @@ module Catan = struct
           player_info.points <- player_info.points + 1
       | _ -> failwith "Ooops! You can build town only on villages!\n"
   let build_road gameState position =
-    print_string @@ "Player " ^ color2str gameState.tour ^ " builts a road at position " ^ Int.to_string position ^ "\n";
+    print_string @@ "Player " ^ color2str gameState.tour ^ " builds a road at position " ^ Int.to_string position ^ "\n";
     gameState.roads <- Utils.replace gameState.roads position (Road gameState.tour);
     let player_info = List.nth gameState.players @@ color2number gameState.tour in
     let rs = player_info.resources in
@@ -328,8 +407,9 @@ module Catan = struct
   let dice_roll gameState n1 n2 =
     print_string @@ "Dice roll: " ^ Int.to_string (n1+n2) ^ "\n";
     gameState.dices <- n1, n2;
-    List.iter (fun b ->
-      match b with
+    List.iter (fun i ->
+      let b = List.nth gameState.settlements i
+      in match b with
       | Village (fl, c) ->
           List.iter (fun e ->
             print_string @@ "Player " ^ color2str c ^ " gains " ^ resource2str e ^ "\n";
@@ -340,21 +420,41 @@ module Catan = struct
             print_string @@ "Player " ^ color2str c ^ " gains 2 " ^ resource2str e ^ "\n";
             update_resources gameState c e;
             update_resources gameState c e
-          ) @@ check_resources fl (n1+n2);
+          ) @@ check_resources fl (n1+n2)
       | Empty _ -> ()
       | Blocked -> ()
-    ) gameState.towns
+    ) @@ Utils.range nof_settlements (* gameState.settlements *)
   let trade gameState offer claim trader =
-    if is_trade_offer_valid gameState offer claim trader
+    if is_valid_trade_offer gameState offer claim trader
       then begin
         print_string "deal\n";
         let player = List.nth gameState.players @@ color2number gameState.tour in
         let rs = player.resources in
-        rs.wood  <- rs.wood - offer.(0) + claim.(0);
-        rs.clay  <- rs.clay - offer.(1) + claim.(1);
-        rs.stone <- rs.stone - offer.(2) + claim.(2);
-        rs.wheat <- rs.wheat - offer.(3) + claim.(3);
-        rs.sheep <- rs.sheep - offer.(4) + claim.(4);
+        let player2 = List.nth gameState.players trader in
+        let rs2 = player2.resources in
+        rs.wood   <- rs.wood   - offer.(0) + claim.(0);
+        rs.clay   <- rs.clay   - offer.(1) + claim.(1);
+        rs.stone  <- rs.stone  - offer.(2) + claim.(2);
+        rs.wheat  <- rs.wheat  - offer.(3) + claim.(3);
+        rs.sheep  <- rs.sheep  - offer.(4) + claim.(4);
+        rs2.wood  <- rs2.wood  + offer.(0) - claim.(0);
+        rs2.clay  <- rs2.clay  + offer.(1) - claim.(1);
+        rs2.stone <- rs2.stone + offer.(2) - claim.(2);
+        rs2.wheat <- rs2.wheat + offer.(3) - claim.(3);
+        rs2.sheep <- rs2.sheep + offer.(4) - claim.(4);
+        true
+      end else false
+  let trade_bank gameState offer claim =
+    if is_valid_trade_offer gameState offer claim (-1)
+      then begin
+        print_string "deal\n";
+        let player = List.nth gameState.players @@ color2number gameState.tour in
+        let rs = player.resources in
+        rs.wood   <- rs.wood   - offer.(0) + claim.(0);
+        rs.clay   <- rs.clay   - offer.(1) + claim.(1);
+        rs.stone  <- rs.stone  - offer.(2) + claim.(2);
+        rs.wheat  <- rs.wheat  - offer.(3) + claim.(3);
+        rs.sheep  <- rs.sheep  - offer.(4) + claim.(4);
         true
       end else false
 
@@ -439,21 +539,20 @@ module Catan = struct
   let playerInit n =
     {
       settlements = [];
-      (* resources   = {wood = 4; clay = 4; stone = 0; wheat = 2; sheep = 2}; *)
-      resources   = {wood = 20; clay = 20; stone = 20; wheat = 20; sheep = 20};
+      resources   = {wood = 4; clay = 4; stone = 0; wheat = 2; sheep = 2};
       points      = 0;
       roads       = [];
-      color       = match n with 0 -> Red | 1 -> Green | 2 -> Blue | _ -> failwith "Ooops! Wrong player number!\n";
+      color       = List.nth order n;
     }
   let gameInit numberOfPlayers =
     let board = boardInit () in {
-      nofp    = numberOfPlayers;
+      numberOfPlayers    = numberOfPlayers;
       board   = board;
-      towns   = settlementsInit board;
+      settlements  = settlementsInit board;
       roads   = List.map (fun _ -> NoRoad) @@ Utils.range nof_roads;
       murzyn  = get_desert_idx board;
       dices   = 6, 6;
-      tour    = List.nth order 0;
+      tour    = first_player;
       players = List.map (fun n -> playerInit n) @@ Utils.range numberOfPlayers;
     }
 
@@ -462,22 +561,22 @@ end
 module Textures = struct
   (* TYPY *)
   type player_info = {
-    mutable resources      : (tagOrId * tagOrId) list;
+    mutable background     : tagOrId;
     mutable avatar         : tagOrId;
     mutable victory_points : tagOrId * tagOrId;
     mutable roads          : tagOrId * tagOrId;
-    mutable background     : tagOrId;
+    mutable resources      : (tagOrId * tagOrId) list;
   }
   type t = {
-    mutable background : tagOrId;
-    mutable murzyn     : tagOrId;
-    mutable villages   : tagOrId list;
-    mutable numbers    : tagOrId list;
-    mutable fields     : tagOrId list;
-    mutable roads      : tagOrId list;
-    mutable dices      : tagOrId * tagOrId;
-    mutable players    : player_info list;
-    (* mutable current_pl : tagOrId; *)
+    mutable background  : tagOrId;
+    mutable murzyn      : tagOrId;
+    mutable fields      : tagOrId list;
+    mutable numbers     : tagOrId list;
+    mutable settlements : tagOrId list;
+    mutable roads       : tagOrId list;
+    mutable dices       : tagOrId * tagOrId;
+    mutable non_active  : tagOrId list;
+    mutable players     : player_info list;
   }
 
   (* TABLICE I STAŁE *)
@@ -511,7 +610,7 @@ module Textures = struct
     (xoffset + 90*2 - 180*0), (yoffset + 155*2); (* field 19 *)
   ]
   let settlements_coords = [
-    (xoffset + 90*2 - 180*2 - 90), (yoffset - 155*2 - 55); (**)
+    (xoffset + 90*2 - 180*2 - 90), (yoffset - 155*2 - 55);
     (xoffset + 90*2 - 180*2),      (yoffset - 155*2 - 100);
     (xoffset + 90*2 - 180*2 + 90), (yoffset - 155*2 - 55);
     (xoffset + 90*2 - 180*1),      (yoffset - 155*2 - 100);
@@ -520,7 +619,7 @@ module Textures = struct
     (xoffset + 90*2 - 180*0 + 90), (yoffset - 155*2 - 55);
 
     (xoffset + 90*1 - 180*2 - 90), (yoffset - 155*1 - 55);
-    (xoffset + 90*1 - 180*2),      (yoffset - 155*1 - 100); (**)
+    (xoffset + 90*1 - 180*2),      (yoffset - 155*1 - 100);
     (xoffset + 90*1 - 180*2 + 90), (yoffset - 155*1 - 55);
     (xoffset + 90*1 - 180*1),      (yoffset - 155*1 - 100);
     (xoffset + 90*1 - 180*1 + 90), (yoffset - 155*1 - 55);
@@ -611,7 +710,6 @@ module Textures = struct
     in draw 18 []
   let draw_building screen buildings =
     List.map2 (fun (x, y) b ->
-      (* draw_image screen "./control/trans_butt.png" x y *)
       match b with
       | Catan.Village (_, c) -> draw_image screen ("./buildings/player" ^ Int.to_string (Catan.color2number c) ^ "village.png") x y
       | Catan.Town    (_, c) -> draw_image screen ("./buildings/player" ^ Int.to_string (Catan.color2number c) ^ "town.png") x y
@@ -636,12 +734,9 @@ module Textures = struct
     in objLst
   let draw_murzyn screen n =
     draw_image screen "./blocks/zlodziej.png" (fst @@ List.nth field_coords n) (snd @@ List.nth field_coords n)
-  let move_murzyn screen n objLst =
-    Canvas.delete screen [objLst.murzyn];
-    draw_murzyn screen n
   let draw_dices screen (n1, n2) =
-    let d1 = draw_image screen ("./dice/wd" ^ Int.to_string n1 ^ ".png") 85 85 in
-    let d2 = draw_image screen ("./dice/wd" ^ Int.to_string n2 ^ ".png") 235 85 in
+    let d1 = draw_image screen ("./dice/wd" ^ Int.to_string n1 ^ ".png") 100 100 in
+    let d2 = draw_image screen ("./dice/wd" ^ Int.to_string n2 ^ ".png") 250 100 in
     d1, d2
   let draw_player screen tour player =
     let n = Catan.color2number player.Catan.color + 1 in
@@ -691,69 +786,146 @@ module Textures = struct
       victory_points = victory_points;
       roads = roads;
     }
-  let draw_info screen color =
-    draw_image screen ("./players/player" ^ Int.to_string (Catan.color2number color) ^ "c.png") 360 85
 
   let render screen gameState =
     let background = draw_background screen in
     let fields     = draw_board      screen gameState.Catan.board  in
     let numbers    = draw_numbers    screen gameState.Catan.board  in
     let roads      = draw_roads      screen gameState.Catan.roads in
-    let buildings  = draw_building   screen gameState.Catan.towns  in
+    let buildings  = draw_building   screen gameState.Catan.settlements  in
     let murzyn     = draw_murzyn     screen gameState.Catan.murzyn in
     let dices      = draw_dices      screen gameState.Catan.dices in
-    let players    = List.map (fun n -> draw_player screen gameState.tour @@ List.nth gameState.Catan.players n) @@ Utils.range gameState.Catan.nofp in
-    (* let curr_pl    = draw_info       screen gameState.Catan.tour in *)
-    let _ = draw_image screen "./control/trans_bob.png" 74 1006 in
-    let _ = draw_image screen "./control/trans_trade.png" 74 (1006-128-10) in
+    let players    = List.map
+                      (fun n -> draw_player screen gameState.tour @@ List.nth gameState.Catan.players n)
+                      @@ Utils.range gameState.Catan.numberOfPlayers in
+    let next       = draw_image screen "./control/next_trans.png"  (1846-(128+10)*0) (1006-(128+10)*0) in
+    let bank       = draw_image screen "./control/bank_trans.png"  (1846-(128+10)*1) (1006-(128+10)*0) in
+    let bob0       = draw_image screen "./control/bob_trans.png"   74 (1006-(128+10)*0) in
+    let bob1       = draw_image screen "./control/bob_trans.png"   74 (1006-(128+10)*1) in
+    let bob2       = draw_image screen "./control/bob_trans.png"   74 (1006-(128+10)*2) in
+    let trade      = draw_image screen "./control/trade_trans.png" 74 (1006-(128+10)*3) in
     pack [screen];
     {
-      background = background;
-      murzyn     = murzyn;
-      villages   = buildings;
-      numbers    = numbers;
-      fields     = fields;
-      roads      = roads;
-      dices      = dices;
-      players    = players;
-      (* current_pl = curr_pl; *)
+      background  = background;
+      murzyn      = murzyn;
+      settlements = buildings;
+      numbers     = numbers;
+      fields      = fields;
+      roads       = roads;
+      dices       = dices;
+      players     = players;
+      non_active  = [next; bank; bob0; bob1; bob2; trade];
     }
   let clear_screen screen gameObjects =
     Canvas.delete screen [gameObjects.background];
-    Canvas.delete screen gameObjects.villages;
-    Canvas.delete screen gameObjects.roads;
-    Canvas.delete screen gameObjects.numbers;
+    Canvas.delete screen [gameObjects.murzyn];
     Canvas.delete screen gameObjects.fields;
+    Canvas.delete screen gameObjects.numbers;
+    Canvas.delete screen gameObjects.settlements;
     Canvas.delete screen gameObjects.roads;
-    List.iter (fun p ->
-      Canvas.delete screen [fst p.victory_points; snd p.victory_points; fst p.roads; snd p.roads];
-      Canvas.delete screen [p.avatar];
+    Canvas.delete screen [fst gameObjects.dices; snd gameObjects.dices];
+    Canvas.delete screen gameObjects.non_active;
+    List.iter (fun (p : player_info) ->
       Canvas.delete screen [p.background];
+      Canvas.delete screen [p.avatar];
+      Canvas.delete screen [fst p.victory_points; snd p.victory_points];
+      Canvas.delete screen [fst p.roads; snd p.roads];
       List.iter (fun (r, t) ->
-        Canvas.delete screen [r];
-        Canvas.delete screen [t]
+        Canvas.delete screen [r; t]
       ) p.resources
     ) gameObjects.players
   let refresh screen gameState renderedObjects =
     clear_screen screen renderedObjects;
     let newObj = render screen gameState in
-    renderedObjects.villages <- newObj.villages
+    renderedObjects.background  <- newObj.background;
+    renderedObjects.murzyn      <- newObj.murzyn;
+    renderedObjects.fields      <- newObj.fields;
+    renderedObjects.numbers     <- newObj.numbers;
+    renderedObjects.settlements <- newObj.settlements;
+    renderedObjects.roads       <- newObj.roads;
+    renderedObjects.dices       <- newObj.dices;
+    renderedObjects.non_active  <- newObj.non_active;
+    renderedObjects.players     <- newObj.players
 end
 
 module Control = struct
-  let rec end_tour screen gameState gameObjects =
-    failwith "not implemented\n"
-  and enable_standatd_tour screen gameState gameObjects =
-    Textures.refresh screen gameState gameObjects;
+  (* TYPY *)
+  type t = {
+    mutable enter_trade   : tagOrId option;
+    mutable bank_trade    : tagOrId option;
+    mutable build_village : tagOrId option;
+    mutable build_town    : tagOrId option;
+    mutable build_road    : tagOrId option;
+    mutable roll_dices    : tagOrId option;
+    mutable end_tour      : tagOrId option;
+  }
+
+  let clear_controls screen gameState gameObjects gameControls =
+    begin match gameControls.enter_trade with
+    | Some obj -> (Canvas.delete screen [obj]; gameControls.enter_trade <- None)
+    | None -> () end;
+    begin match gameControls.build_village with
+    | Some obj -> (Canvas.delete screen [obj]; gameControls.build_village <- None)
+    | None -> () end;
+    begin match gameControls.build_town with
+    | Some obj -> (Canvas.delete screen [obj]; gameControls.build_town <- None)
+    | None -> () end;
+    begin match gameControls.build_road with
+    | Some obj -> (Canvas.delete screen [obj]; gameControls.build_road <- None)
+    | None -> () end;
+    begin match gameControls.roll_dices with
+    | Some obj -> (Canvas.delete screen [obj]; gameControls.roll_dices <- None)
+    | None -> () end;
+    begin match gameControls.end_tour with
+    | Some obj -> (Canvas.delete screen [obj]; gameControls.end_tour <- None)
+    | None -> () end;
+    Textures.refresh screen gameState gameObjects
+
+  let rec end_tour screen gameState gameObjects gameControls =
+    let obj = Textures.draw_image screen "./control/next.png" (1920-74) (1006-(128+10)*0) in
+    gameControls.end_tour <- Some obj;
+    Canvas.bind ~events:[`ButtonPress]
+      ~action:(fun _ ->
+        (* Canvas.delete screen [obj];
+        gameControls.enter_trade <- None; *)
+        Catan.next_player gameState;
+        clear_controls screen gameState gameObjects gameControls;
+        enable_dice_roll screen gameState gameObjects gameControls
+      ) screen obj
+  and enable_standatd_tour screen gameState gameObjects gameControls =
+    (* Textures.refresh screen gameState gameObjects; *)
+    clear_controls screen gameState gameObjects gameControls;
     (* Kupno karty niedorozwoju *)
     (* Wykorzystanie karty niedorozwoju *)
-    (* Przycisk końca tury *)
-    enable_build_road    screen gameState gameObjects;
-    enable_build_village screen gameState gameObjects;
-    enable_build_town    screen gameState gameObjects;
-    enable_trade         screen gameState gameObjects;
-    enable_dice_roll     screen gameState gameObjects
-  and enable_move_murzyn screen gameState gameObjects =
+    end_tour             screen gameState gameObjects gameControls;
+    enable_build_road    screen gameState gameObjects gameControls;
+    enable_build_village screen gameState gameObjects gameControls;
+    enable_build_town    screen gameState gameObjects gameControls;
+    enable_trade         screen gameState gameObjects gameControls;
+    enable_trade_bank    screen gameState gameObjects gameControls
+  and enable_dice_roll screen gameState gameObjects gameControls =
+    let obj = Textures.draw_image screen "./control/trans_butt.png" 74 74 in
+    gameControls.roll_dices <- Some obj;
+    Canvas.bind ~events:[`ButtonPress]
+      ~action:(fun e ->
+        (* Catan.next_player gameState; *)
+        Canvas.delete screen [obj];
+        gameControls.roll_dices <- None;
+        let n1, n2 = Utils.droll () in
+        if n1+n2 = 7
+          then begin
+            gameState.Catan.dices <- n1, n2;
+            Textures.refresh screen gameState gameObjects;
+            enable_move_murzyn screen gameState gameObjects gameControls
+          end
+          else begin
+            Catan.dice_roll gameState n1 n2;
+            (* Textures.refresh screen gameState gameObjects; *)
+            enable_standatd_tour screen gameState gameObjects gameControls
+          end
+      ) screen obj
+
+  and enable_move_murzyn screen gameState gameObjects gameControls =
     let objLst = List.map (fun (x, y) ->
       Textures.draw_image screen "./control/trans_butt.png" x y
     ) Textures.field_coords
@@ -762,47 +934,164 @@ module Control = struct
         ~action:(fun e ->
           Catan.move_murzyn gameState idx;
           Canvas.delete screen objLst;
-          Textures.refresh screen gameState gameObjects;
-          enable_standatd_tour screen gameState gameObjects
+          choose_player screen gameState gameObjects gameControls idx
+          (* enable_standatd_tour screen gameState gameObjects gameControls *)
         )
         screen
         obj
     ) objLst (Utils.range 19)
-  and enable_dice_roll screen gameState gameObjects =
-    let obj = Textures.draw_image screen "./control/trans_butt.png" 74 74 in
-    Canvas.bind ~events:[`ButtonPress]
-      ~action:(fun e ->
-        Catan.next_player gameState;
-        Canvas.delete screen [obj];
-        let n1, n2 = Utils.droll () in
-        if n1+n2 = 7
-          then begin
-            gameState.Catan.dices <- n1, n2;
-            Textures.refresh screen gameState gameObjects;
-            enable_move_murzyn screen gameState gameObjects
-          end
-          else begin
-            Catan.dice_roll gameState n1 n2;
-            Textures.refresh screen gameState gameObjects;
-            enable_standatd_tour screen gameState gameObjects
-          end
-      ) screen obj
+  and choose_player screen gameState gameObjects gameControls idx =
+    let places = List.nth Catan.fields_buildplaces idx in
+    let objLst = List.filter_map (fun i ->
+        let b = List.nth gameState.Catan.settlements i
+        in match b with
+        | Village (fl, c)
+        | Town (fl, c) ->
+            begin
+              let x,y = List.nth Textures.settlements_coords i
+              in Some ((Textures.draw_image screen "./control/trans_butt.png" x y), c)
+            end
+        | Empty fl -> None
+        | Blocked -> None
+      ) places
+    in if List.length objLst > 0
+      then begin
+        List.iter (fun (e, c) ->
+          Canvas.bind ~events:[`ButtonPress]
+            ~action:(fun _ ->
+              Canvas.delete screen @@ List.map (fun e -> fst e) objLst;
+              Catan.steal_from gameState c;
+              enable_standatd_tour screen gameState gameObjects gameControls
+            ) screen e
+        ) objLst
+      end
+      else enable_standatd_tour screen gameState gameObjects gameControls
 
-  and enable_trade screen gameState gameObjects =
-    let obj = Textures.draw_image screen "./control/trade.png" 74 (1006-128-10) in
+  and enable_trade_bank screen gameState gameObjects gameControls =
+    let obj = Textures.draw_image screen "./control/bank.png" (1846-(128+10)*1) (1006-(128+10)*0) in
+    gameControls.bank_trade <- Some obj;
     Canvas.bind ~events:[`ButtonPress]
       ~action:(fun _ ->
-        Canvas.delete screen [obj];
-        trade_offer screen gameState gameObjects [|0;0;0;0;0|] [|0;0;0;0;0|]
-        (* Catan.trade gameState *)
-        (* Textures.refresh screen gameState gameObjects *)
+        (* Canvas.delete screen [obj];
+        gameControls.enter_trade <- None; *)
+        clear_controls screen gameState gameObjects gameControls;
+        trade_offer_bank screen gameState gameObjects gameControls [|0;0;0;0;0|] [|0;0;0;0;0|]
       ) screen obj
-  and trade_offer screen gameState gameObjects claim offer =
-    let oponents = List.filter (fun e -> e != Catan.color2number gameState.tour) @@ Utils.range gameState.Catan.nofp
+  and trade_offer_bank screen gameState gameObjects gameControls claim offer =
+    let accept =
+      let img = if Catan.is_valid_trade_offer gameState offer claim (-1)
+                  then "./control/accept.png"
+                  else "./control/accept_trans.png"
+      in Textures.draw_image screen img (160) (1080/4+80)
+
+    in let decline = Textures.draw_image screen "./control/decline.png" (1846-(128+10)*1) (1006-(128+10)*0)
+
+    (* Kontrolki do kupna *)
+    in let take_controls = List.map (fun i ->
+      Textures.draw_image screen Catan.sblocks.(i) (80+40*i) (1080/4-50)
+    ) @@ Utils.range 5
+    in let take_numbers = List.map (fun i ->
+      let t = Canvas.create_text ~x:(80+40*i) ~y:(1080/4-46) ~font:"Helvetica 28 bold" ~text:(Int.to_string claim.(i)) screen in
+      Canvas.configure_text screen t;
+      t
+    ) @@ Utils.range 5
+
+    (* Kontrolnki do sprzedarzy *)
+    in let give_controls = List.map (fun i ->
+      Textures.draw_image screen Catan.sblocks.(i) (80+40*i) (1080/4)
+    ) @@ Utils.range 5
+    in let give_numbers = List.map (fun i ->
+      let t = Canvas.create_text ~x:(80+40*i) ~y:(1080/4+4) ~font:"Helvetica 28 bold" ~text:(Int.to_string offer.(i)) screen in
+      Canvas.configure_text screen t;
+      t
+    ) @@ Utils.range 5
+
+    (* Eventy accept i decline *)
+    in Canvas.bind ~events:[`ButtonPress]
+      ~action:(fun _ ->
+        Canvas.delete screen take_numbers;
+        Canvas.delete screen give_numbers;
+        Canvas.delete screen take_controls;
+        Canvas.delete screen give_controls;
+        Canvas.delete screen [decline; accept];
+        enable_standatd_tour screen gameState gameObjects gameControls
+      ) screen decline;
+    Canvas.bind ~events:[`ButtonPress]
+    ~action:(fun _ ->
+      Canvas.delete screen take_numbers;
+      Canvas.delete screen give_numbers;
+      Canvas.delete screen take_controls;
+      Canvas.delete screen give_controls;
+      Canvas.delete screen [decline; accept];
+      if Catan.trade_bank gameState offer claim
+        then enable_standatd_tour screen gameState gameObjects gameControls
+        else trade_offer_bank screen gameState gameObjects gameControls claim offer
+    ) screen accept;
+
+    List.iter (fun i ->
+      (* Eventy kup *)
+      Canvas.bind ~events:[`ButtonPress]
+        ~action:(fun _ ->
+          Canvas.delete screen take_numbers;
+          Canvas.delete screen give_numbers;
+          Canvas.delete screen take_controls;
+          Canvas.delete screen give_controls;
+          Canvas.delete screen [decline; accept];
+          claim.(i) <- claim.(i)+1;
+          trade_offer_bank screen gameState gameObjects gameControls claim offer
+        ) screen @@ List.nth take_controls i;
+      Canvas.bind ~events:[`ButtonPress]
+        ~action:(fun _ ->
+          Canvas.delete screen take_numbers;
+          Canvas.delete screen give_numbers;
+          Canvas.delete screen take_controls;
+          Canvas.delete screen give_controls;
+          Canvas.delete screen [decline; accept];
+          claim.(i) <- claim.(i)+1;
+          trade_offer_bank screen gameState gameObjects gameControls claim offer
+        ) screen @@ List.nth take_numbers i;
+      (* Eventy sprzedaj *)
+      Canvas.bind ~events:[`ButtonPress]
+        ~action:(fun _ ->
+          Canvas.delete screen take_numbers;
+          Canvas.delete screen give_numbers;
+          Canvas.delete screen take_controls;
+          Canvas.delete screen give_controls;
+          Canvas.delete screen [decline; accept];
+          offer.(i) <- offer.(i)+4;
+          trade_offer_bank screen gameState gameObjects gameControls claim offer
+        ) screen @@ List.nth give_numbers i;
+      Canvas.bind ~events:[`ButtonPress]
+        ~action:(fun _ ->
+          Canvas.delete screen take_numbers;
+          Canvas.delete screen give_numbers;
+          Canvas.delete screen take_controls;
+          Canvas.delete screen give_controls;
+          Canvas.delete screen [decline; accept];
+          offer.(i) <- offer.(i)+4;
+          trade_offer_bank screen gameState gameObjects gameControls claim offer
+        ) screen @@ List.nth give_controls i;
+    ) @@ Utils.range 5
+
+  and enable_trade screen gameState gameObjects gameControls =
+    let obj = Textures.draw_image screen "./control/trade.png" 74 (1006-(128+10)*3) in
+    gameControls.enter_trade <- Some obj;
+    Canvas.bind ~events:[`ButtonPress]
+      ~action:(fun _ ->
+        (* Canvas.delete screen [obj];
+        gameControls.enter_trade <- None; *)
+        clear_controls screen gameState gameObjects gameControls;
+        trade_offer screen gameState gameObjects gameControls [|0;0;0;0;0|] [|0;0;0;0;0|]
+      ) screen obj
+  and trade_offer screen gameState gameObjects gameControls claim offer =
+    let oponents = List.filter (fun e -> e != Catan.color2number gameState.tour) @@ Utils.range gameState.Catan.numberOfPlayers
     in let accepts = List.map (fun i ->
-      Textures.draw_image screen ("./control/player" ^ (Int.to_string @@ List.nth oponents i) ^ "accept.png") (110 + 100*i) (1080/4+80)
+      let img = if Catan.is_valid_trade_offer gameState offer claim @@ List.nth oponents i
+                  then "./control/player" ^ (Int.to_string @@ List.nth oponents i) ^ "accept.png"
+                  else "./control/player" ^ (Int.to_string @@ List.nth oponents i) ^ "accept_trans.png"
+      in Textures.draw_image screen img (110 + 100*i) (1080/4+80)
     ) @@ Utils.range @@ List.length oponents
-    in let decline = Textures.draw_image screen "./control/decline.png" 74 (1006-128-10)
+    in let decline = Textures.draw_image screen "./control/decline.png" 74 (1006-(128+10)*3)
 
     (* Kontrolki do kupna *)
     in let take_controls = List.map (fun i ->
@@ -832,7 +1121,7 @@ module Control = struct
         Canvas.delete screen take_controls;
         Canvas.delete screen give_controls;
         Canvas.delete screen (decline::accepts);
-        enable_standatd_tour screen gameState gameObjects
+        enable_standatd_tour screen gameState gameObjects gameControls
       ) screen decline;
     List.iter (fun i ->
       Canvas.bind ~events:[`ButtonPress]
@@ -843,10 +1132,10 @@ module Control = struct
         Canvas.delete screen give_controls;
         Canvas.delete screen (decline::accepts);
         if Catan.trade gameState offer claim @@ List.nth oponents i
-          then enable_standatd_tour screen gameState gameObjects
-          else trade_offer screen gameState gameObjects claim offer
+          then enable_standatd_tour screen gameState gameObjects gameControls
+          else trade_offer screen gameState gameObjects gameControls claim offer
       ) screen @@ List.nth accepts i
-    ) @@ Utils.range (gameState.Catan.nofp - 1);
+    ) @@ Utils.range (gameState.Catan.numberOfPlayers - 1);
 
     List.iter (fun i ->
       (* Eventy kup *)
@@ -858,7 +1147,7 @@ module Control = struct
           Canvas.delete screen give_controls;
           Canvas.delete screen (decline::accepts);
           claim.(i) <- claim.(i)+1;
-          trade_offer screen gameState gameObjects claim offer
+          trade_offer screen gameState gameObjects gameControls claim offer
         ) screen @@ List.nth take_controls i;
       Canvas.bind ~events:[`ButtonPress]
         ~action:(fun _ ->
@@ -868,7 +1157,7 @@ module Control = struct
           Canvas.delete screen give_controls;
           Canvas.delete screen (decline::accepts);
           claim.(i) <- claim.(i)+1;
-          trade_offer screen gameState gameObjects claim offer
+          trade_offer screen gameState gameObjects gameControls claim offer
         ) screen @@ List.nth take_numbers i;
       (* Eventy sprzedaj *)
       Canvas.bind ~events:[`ButtonPress]
@@ -879,7 +1168,7 @@ module Control = struct
           Canvas.delete screen give_controls;
           Canvas.delete screen (decline::accepts);
           offer.(i) <- offer.(i)+1;
-          trade_offer screen gameState gameObjects claim offer
+          trade_offer screen gameState gameObjects gameControls claim offer
         ) screen @@ List.nth give_numbers i;
       Canvas.bind ~events:[`ButtonPress]
         ~action:(fun _ ->
@@ -889,45 +1178,49 @@ module Control = struct
           Canvas.delete screen give_controls;
           Canvas.delete screen (decline::accepts);
           offer.(i) <- offer.(i)+1;
-          trade_offer screen gameState gameObjects claim offer
+          trade_offer screen gameState gameObjects gameControls claim offer
         ) screen @@ List.nth give_controls i;
     ) @@ Utils.range 5
 
-  and enable_build_road screen gameState gameObjects =
-    if Catan.can_build_road gameState
+  and enable_build_road screen gameState gameObjects gameControls =
+    if Catan.can_afford_road gameState
       then begin
-        let obj = Textures.draw_image screen "./control/bob.png" (74+10+128) 1006 in
+        let obj = Textures.draw_image screen "./control/bob.png" 74 (1006-(128+10)*0) in
+        gameControls.build_road <- Some obj;
         Canvas.bind ~events:[`ButtonPress]
           ~action:(fun _ ->
-            Canvas.delete screen [obj];
-            choose_position_road screen gameState gameObjects
-            (* Textures.refresh screen gameState gameObjects *)
+            (* Canvas.delete screen [obj]; *)
+            clear_controls screen gameState gameObjects gameControls;
+            choose_position_road screen gameState gameObjects gameControls
           ) screen obj
       end
-  and enable_build_village screen gameState gameObjects =
-    if Catan.can_build_village gameState
+  and enable_build_village screen gameState gameObjects gameControls =
+    if Catan.can_afford_village gameState
       then begin
-        let obj = Textures.draw_image screen "./control/bob.png" 74 1006 in
+        let obj = Textures.draw_image screen "./control/bob.png" 74 (1006-(128+10)*1) in
+        gameControls.build_village <- Some obj;
         Canvas.bind ~events:[`ButtonPress]
           ~action:(fun _ ->
-            Canvas.delete screen [obj];
-            choose_position_village screen gameState gameObjects
-            (* Textures.refresh screen gameState gameObjects *)
+            (* Canvas.delete screen [obj]; *)
+            clear_controls screen gameState gameObjects gameControls;
+            choose_position_village screen gameState gameObjects gameControls
           ) screen obj
       end
-  and enable_build_town screen gameState gameObjects =
-    if Catan.can_build_town gameState
+  and enable_build_town screen gameState gameObjects gameControls =
+    if Catan.can_afford_town gameState
       then begin
-        let obj = Textures.draw_image screen "./control/bob.png" (74+10+128) (1006-10-128) in
+        let obj = Textures.draw_image screen "./control/bob.png" 74 (1006-(128+10)*2) in
+        gameControls.build_town <- Some obj;
         Canvas.bind ~events:[`ButtonPress]
           ~action:(fun _ ->
-            Canvas.delete screen [obj];
-            choose_position_town screen gameState gameObjects
-            (* Textures.refresh screen gameState gameObjects *)
+            (* Canvas.delete screen [obj]; *)
+            clear_controls screen gameState gameObjects gameControls;
+            choose_position_town screen gameState gameObjects gameControls
           ) screen obj
       end
 
-  and choose_position_road screen gameState gameObjects =
+  and choose_position_road screen gameState gameObjects gameControls =
+    let cancel = Textures.draw_image screen "./control/decline.png" 74 (1006-(128+10)*0) in
     let objLst = List.filter_map (fun n ->
       let n1, n2 = List.nth Catan.roads n in
       let x1, y1 = List.nth Textures.settlements_coords n1 in
@@ -935,7 +1228,7 @@ module Control = struct
       match List.nth gameState.Catan.roads n with
         | Road _ -> None
         | NoRoad ->
-          if Catan.verify_road_position gameState n
+          if Catan.is_valid_road_position gameState n
             then Some (Textures.draw_image screen "./control/empty.png" ((x1+x2)/2) ((y1+y2)/2), n)
             else None
     ) @@ Utils.range Catan.nof_roads
@@ -947,58 +1240,87 @@ module Control = struct
           | Catan.NoRoad ->
               Catan.build_road gameState idx;
               Canvas.delete screen @@ List.map (fun e -> fst e) objLst;
-              Textures.refresh screen gameState gameObjects;
-              enable_standatd_tour screen gameState gameObjects
+              (* Textures.refresh screen gameState gameObjects; *)
+              enable_standatd_tour screen gameState gameObjects gameControls
           | _ -> failwith "Ooops! Shouldn't get here... [err6]\n"
         ) screen obj
-    ) objLst
-  and choose_position_village screen gameState gameObjects =
+    ) objLst;
+    Canvas.bind ~events:[`ButtonPress]
+      ~action:(fun _ ->
+        Canvas.delete screen [cancel];
+        Canvas.delete screen @@ List.map (fun e -> fst e) objLst;
+        enable_standatd_tour screen gameState gameObjects gameControls;
+      ) screen cancel
+  and choose_position_village screen gameState gameObjects gameControls =
+    let cancel = Textures.draw_image screen "./control/decline.png" 74 (1006-(128+10)*1) in
     let objLst = List.filter_map (fun n ->
       let coords = List.nth Textures.settlements_coords n in
-      let e = List.nth gameState.Catan.towns n in
+      let e = List.nth gameState.Catan.settlements n in
       match e with
-      | Catan.Empty _ -> Some ((Textures.draw_image screen "./control/empty.png" (fst coords) (snd coords)), n)
+      | Catan.Empty _ ->
+        if Catan.is_valid_village_position gameState n
+          then Some ((Textures.draw_image screen "./control/empty.png" (fst coords) (snd coords)), n)
+          else None
       | _ -> None
     ) @@ Utils.range Catan.nof_settlements
     in List.iter (fun (obj, idx) ->
+      print_string "siemano\n";
       Canvas.bind ~events:[`ButtonPress]
         ~action:(fun _ ->
-          let e = List.nth gameState.Catan.towns idx in
+          let e = List.nth gameState.Catan.settlements idx in
           match e with
           | Catan.Empty xs ->
               Catan.build_village gameState idx;
               Canvas.delete screen @@ List.map (fun e -> fst e) objLst;
-              Textures.refresh screen gameState gameObjects;
-              enable_standatd_tour screen gameState gameObjects
+              (* Textures.refresh screen gameState gameObjects; *)
+              enable_standatd_tour screen gameState gameObjects gameControls
           | _ -> failwith "Ooops! Shouldn't get here... [err7]\n"
         ) screen obj
-    ) objLst
-  and choose_position_town screen gameState gameObjects =
+    ) objLst;
+    Canvas.bind ~events:[`ButtonPress]
+      ~action:(fun _ ->
+        Canvas.delete screen [cancel];
+        Canvas.delete screen @@ List.map (fun e -> fst e) objLst;
+        enable_standatd_tour screen gameState gameObjects gameControls;
+      ) screen cancel
+  and choose_position_town screen gameState gameObjects gameControls =
+    let cancel = Textures.draw_image screen "./control/decline.png" 74 (1006-(128+10)*2) in
     let objLst = List.filter_map (fun n ->
       let coords = List.nth Textures.settlements_coords n in
-      let e = List.nth gameState.Catan.towns n in
+      let e = List.nth gameState.Catan.settlements n in
       match e with
-      | Catan.Village _ -> Some ((Textures.draw_image screen "./control/empty.png" (fst coords) (snd coords)), n)
+      | Catan.Village (fl, c) ->
+          begin
+            if c = gameState.Catan.tour
+              then Some ((Textures.draw_image screen "./control/empty.png" (fst coords) (snd coords)), n)
+              else None
+          end
       | _ -> None
     ) @@ Utils.range Catan.nof_settlements
     in List.iter (fun (obj, idx) ->
       Canvas.bind ~events:[`ButtonPress]
         ~action:(fun _ ->
-          let e = List.nth gameState.Catan.towns idx in
+          let e = List.nth gameState.Catan.settlements idx in
           match e with
           | Catan.Village (xs, c) ->
               Catan.build_town gameState idx;
               Canvas.delete screen @@ List.map (fun e -> fst e) objLst;
-              Textures.refresh screen gameState gameObjects;
-              enable_standatd_tour screen gameState gameObjects
+              (* Textures.refresh screen gameState gameObjects; *)
+              enable_standatd_tour screen gameState gameObjects gameControls
           | _ -> failwith "Ooops! Shouldn't get here... [err8]\n"
         ) screen obj
-    ) objLst
+    ) objLst;
+    Canvas.bind ~events:[`ButtonPress]
+      ~action:(fun _ ->
+        Canvas.delete screen [cancel];
+        Canvas.delete screen @@ List.map (fun e -> fst e) objLst;
+        enable_standatd_tour screen gameState gameObjects gameControls;
+      ) screen cancel
 
-  let rec starting_buildings screen gameState gameObjects hm =
+  let rec starting_buildings screen gameState gameObjects gameControls villagesLeft =
     let objLst = List.filter_map (fun n ->
       let coords = List.nth Textures.settlements_coords n in
-      let e = List.nth gameState.Catan.towns n in
+      let e = List.nth gameState.Catan.settlements n in
       match e with
       | Catan.Empty _ -> Some ((Textures.draw_image screen "./control/empty.png" (fst coords) (snd coords)), n)
       | _ -> None
@@ -1006,23 +1328,51 @@ module Control = struct
     in List.iter (fun (obj, idx) ->
       Canvas.bind ~events:[`ButtonPress]
         ~action:(fun _ ->
-          let e = List.nth gameState.Catan.towns idx in
+          let e = List.nth gameState.Catan.settlements idx in
           match e with
           | Catan.Empty xs ->
               Catan.build_village gameState idx;
               Canvas.delete screen @@ List.map (fun e -> fst e) objLst;
-              if hm > 1
+              (* Catan.next_player gameState; *)
+              Textures.refresh screen gameState gameObjects;
+              starting_roads screen gameState gameObjects gameControls idx villagesLeft
+          | _ -> failwith "Ooops! Shouldn't get here... [err5]\n"
+        ) screen obj
+    ) objLst
+  and starting_roads screen gameState gameObjects gameControls position villagesLeft =
+    let objLst = List.filter_map (fun n ->
+      let n1, n2 = List.nth Catan.roads n in
+      let x1, y1 = List.nth Textures.settlements_coords n1 in
+      let x2, y2 = List.nth Textures.settlements_coords n2 in
+      match List.nth gameState.Catan.roads n with
+        | Road _ -> None
+        | NoRoad ->
+          if n1 = position || n2 = position
+            then Some (Textures.draw_image screen "./control/empty.png" ((x1+x2)/2) ((y1+y2)/2), n)
+            else None
+    ) @@ Utils.range Catan.nof_roads
+    in List.iter (fun (obj, idx) ->
+      Canvas.bind ~events:[`ButtonPress]
+        ~action:(fun _ ->
+          let e = List.nth gameState.Catan.roads idx in
+          match e with
+          | Catan.NoRoad ->
+              Catan.build_road gameState idx;
+              Canvas.delete screen @@ List.map (fun e -> fst e) objLst;
+              Catan.next_player gameState;
+              Textures.refresh screen gameState gameObjects;
+              if villagesLeft > 1
                 then begin
-                  Catan.next_player gameState;
-                  Textures.refresh screen gameState gameObjects;
-                  starting_buildings screen gameState gameObjects (hm - 1)
+                  (* Catan.next_player gameState;
+                  Textures.refresh screen gameState gameObjects; *)
+                  starting_buildings screen gameState gameObjects gameControls (villagesLeft - 1)
                 end
                 else begin
-                  (* Catan.first_player gameState; *)
-                  Textures.refresh screen gameState gameObjects;
-                  enable_dice_roll screen gameState gameObjects
+                  (* Catan.next_player gameState;
+                  Textures.refresh screen gameState gameObjects; *)
+                  enable_dice_roll screen gameState gameObjects gameControls
                 end
-          | _ -> failwith "Ooops! Shouldn't get here... [err5]\n"
+          | _ -> failwith "Ooops! Shouldn't get here... [err8]\n"
         ) screen obj
     ) objLst
 
@@ -1031,9 +1381,19 @@ module Control = struct
     let gameState   = Catan.gameInit numberOfPlayers in
     (* Główny obiekt trzymający wszystkie narysowane obiekty (tagOrId) *)
     let gameObjects = Textures.render screen gameState in
+    (* Główny obiekt trzymający kontrolki *)
+    let gameControls =
+      {
+        enter_trade   = None;
+        bank_trade    = None;
+        build_village = None;
+        build_town    = None;
+        build_road    = None;
+        roll_dices    = None;
+        end_tour      = None;
+      } in
     (* Korzeń drzwa eventów *)
-    (* choose_position_road screen gameState gameObjects *)
-    starting_buildings screen gameState gameObjects (numberOfPlayers*2)
+    starting_buildings screen gameState gameObjects gameControls (numberOfPlayers*2)
 end
 
 let catan =
@@ -1043,16 +1403,3 @@ let catan =
   Control.start_game mainCanvas 3;
 
   mainLoop () ;;
-
-(*
-let objLst = List.map (fun (n1, n2) ->
-      let x1, y1 = List.nth Textures.settlements_coords n1 in
-      let x2, y2 = List.nth Textures.settlements_coords n2 in
-      let road_img =
-        if x1 = x2
-          then "./buildings/player0roadv.png"
-          else if y1 > y2 then "./buildings/player0roadr.png" else"./buildings/player0roadl.png"
-      in Textures.draw_image screen road_img ((x1+x2)/2) ((y1+y2)/2)
-    ) Catan.roads
-    in ()
-*)
