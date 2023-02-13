@@ -1,34 +1,5 @@
 open Tk
 
-(*
- TODO:
-  0. Sprzątnąć gówniany kod
-  1. Budowa dróg [DONE]
-  2. Budowa miast [DONE]
-  3. Handel
-      - Ikonka accept dla każdego gracza [DONE]
-      - Handel z bankiem [DONE]
-      - Porty [!]
-  4. Murzyn
-      - Kradnie [DONE]
-      - Blokuje [!!!]
-      - Wyrzuca surowce [!!]
-  5. Punkty zwycięstwa
-      - Wsie [DONE]
-      - Miasta [DONE]
-      - Autostrada [!!]
-      - Władza rycerska [!]
-  6. Karty niedorozwoju (rycerz, budowa drogi, pobranie surowców, monopol, punkt zwycięstwa) [!!]
-  7. Kosmetyka
-  8. AI
- *)
-(*
- BUGI:
-  0. Można budować miasta na cudzych wsiach [SOLVED]
-  1. Kontrolki [SOLVED]
-  2. Można budować wsie na polach bez drogi [SOLVED]
- *)
-
 module Utils = struct
   let range n =
     let rec _range i lst =
@@ -43,7 +14,7 @@ module Utils = struct
     List.map snd sond
   let replace l pos a =
     List.mapi (fun i x -> if i = pos then a else x) l;;
-  let droll () =
+  let random_pair () =
     Random.int 6 + 1, Random.int 6 + 1
   let rec find_idx elem lst =
     match lst with
@@ -53,6 +24,7 @@ end
 
 module Catan = struct
   (* TYPY *)
+  type field_index = int (* Typ pomocniczy, żeby było mi się łatwiej ogarniać w kodzie *)
   type color =
     | Red
     | Green
@@ -64,13 +36,20 @@ module Catan = struct
     | RWheat of int
     | RSheep of int
   type field =
-    | Wood  of int
-    | Clay  of int
-    | Stone of int
-    | Wheat of int
-    | Sheep of int
+    (* Przechowuje typ pola, numer do niego przypisany oraz indeks na planszy *)
+    | Wood  of int * field_index
+    | Clay  of int * field_index
+    | Stone of int * field_index
+    | Wheat of int * field_index
+    | Sheep of int * field_index
     | Desert
   type settlement =
+    (*
+     * Jeżeli dane pole jest wsią/miastem to przechowuje
+     *  listę przyległych pól oraz kolor właściciela.
+     * Dla pustych miejc na zabudowania pamiętamy tylko przyległe pola.
+     * Dla zablokowanych pól nie trzeba nic pamiętać, nie można tam budować
+     *)
     | Village of field list * color
     | Town    of field list * color
     | Empty   of field list
@@ -79,6 +58,7 @@ module Catan = struct
     | Road of color
     | NoRoad
   type player_resources = {
+    (* Przechowuje liczbę każdego z surowców *)
     mutable wood  : int;
     mutable clay  : int;
     mutable stone : int;
@@ -86,6 +66,7 @@ module Catan = struct
     mutable sheep : int;
   }
   type player = {
+    (* Informacje o graczu *)
     mutable color       : color;
     mutable resources   : player_resources;
     mutable settlements : int list;
@@ -99,7 +80,7 @@ module Catan = struct
     mutable settlements : settlement list;
     mutable roads       : road list;
     mutable tour        : color;
-    mutable murzyn      : int;
+    mutable thief      : int;
     mutable dices       : int * int;
   }
 
@@ -213,7 +194,7 @@ module Catan = struct
     47,48; 48,49; 49,50; 50,51; 51,52; 52,53;
   ]
 
-  (* FUNKCJE POMOCNICZE *)
+  (* FUNKCJE *)
   let color2number c =
     Utils.find_idx c order
   let resource2str f =
@@ -230,22 +211,33 @@ module Catan = struct
     | Blue  -> "blue"
 
   let get_desert_idx board =
+    (*
+     * Zwraca indeks pustyni na planszy
+     *)
     let rec _aux n board =
       match List.nth board 0 with
         | Desert -> n
         | _ -> _aux (n+1) @@ List.tl board
     in _aux 0 board
-  let check_resources fl n =
+  let check_resources fl n m =
+    (*
+     * Otrzymuje listę pól przyległych do danej osady, wynik kości i pozycję złodzieja.
+     * Zwraca listę surowców, które w danej turze zbiera ta osada
+     *)
+    print_string @@ "Pozycja thiefa: " ^ Int.to_string m ^ "\n";
     List.filter_map (fun f ->
       match f with
-      | Wood  i -> if i = n then Some (RWood  1) else None
-      | Clay  i -> if i = n then Some (RClay  1) else None
-      | Stone i -> if i = n then Some (RStone 1) else None
-      | Wheat i -> if i = n then Some (RWheat 1) else None
-      | Sheep i -> if i = n then Some (RSheep 1) else None
+      | Wood  (i, fi) -> print_string @@ "Indeks pola: " ^ Int.to_string fi ^ "\n"; if (i = n && fi != m) then Some (RWood  1) else None
+      | Clay  (i, fi) -> print_string @@ "Indeks pola: " ^ Int.to_string fi ^ "\n"; if (i = n && fi != m) then Some (RClay  1) else None
+      | Stone (i, fi) -> print_string @@ "Indeks pola: " ^ Int.to_string fi ^ "\n"; if (i = n && fi != m) then Some (RStone 1) else None
+      | Wheat (i, fi) -> print_string @@ "Indeks pola: " ^ Int.to_string fi ^ "\n"; if (i = n && fi != m) then Some (RWheat 1) else None
+      | Sheep (i, fi) -> print_string @@ "Indeks pola: " ^ Int.to_string fi ^ "\n"; if (i = n && fi != m) then Some (RSheep 1) else None
       | Desert  -> None
     ) fl
   let update_resources gameState player resource =
+    (*
+     * Dodaje do surowców podanego gracza jedną sztukę `resource`
+     *)
     let p = List.nth gameState.players @@ color2number player in
     let r = p.resources in
     match resource with
@@ -255,24 +247,42 @@ module Catan = struct
       | RWheat i -> r.wheat <- r.wheat+1
       | RSheep i -> r.sheep <- r.sheep+1
   let can_afford_road gameState =
+    (*
+     * Sprawdza, czy aktualnego gracza stać na budowę drogi
+     * drewno, glina
+     *)
     let player = List.nth gameState.players @@ color2number gameState.tour in
     let rs = player.resources in
     if List.for_all (fun b -> b) [rs.wood > 0; rs.clay > 0]
       then true
       else false
   let can_afford_village gameState =
+    (*
+     * Sprawdza, czy aktualnego gracza stać na budowę wsi
+     * drewno, glina, sianko, owca
+     *)
     let player = List.nth gameState.players @@ color2number gameState.tour in
     let rs = player.resources in
     if List.for_all (fun b -> b) [rs.wood > 0; rs.clay > 0; rs.sheep > 0; rs.wheat > 0]
       then true
       else false
   let can_afford_town gameState =
+    (*
+     * Sprawdza, czy aktualnego gracza stać na budowę miasta
+     * 3x kamień, 2x sianko
+     *)
     let player = List.nth gameState.players @@ color2number gameState.tour in
     let rs = player.resources in
     if List.for_all (fun b -> b) [rs.wheat >= 2; rs.stone >= 3]
       then true
       else false
   let is_valid_trade_offer gameState offer claim trader =
+    (*
+     * Sprawdza czy podana oferta wymiany jest prawidłowa,
+     * to znaczy czy obydwie strony mają odpowiednią ilość surowców.
+     * W wymianie obydwie strony muszą oferować przynajmniej jeden surowiec.
+     * Jeżeli trader = -1, to drugą stroną jest bank
+     *)
     if trader = (-1)
       then begin
         if 4*(Array.fold_left (+) 0 claim) = (Array.fold_left (+) 0 offer)
@@ -292,6 +302,11 @@ module Catan = struct
               && List.mem true [claim.(0) > 0; claim.(1) > 0; claim.(2) > 0; claim.(3) > 0; claim.(4) > 0]
       end
   let is_valid_road_position gameState position =
+    (*
+     * Sprawdza czy aktualny gracz może legalnie wybudować miasto na podanej pozycji
+     * (miasto można wybudować jedynie na swojej wsi).
+     * Zwraca true jeżeli budowa jest możliwa, wpp. false
+     *)
     let v1, v2 = List.nth roads position in
     let player = List.nth gameState.players @@ color2number gameState.tour in
     let buildings = player.settlements in
@@ -306,6 +321,11 @@ module Catan = struct
           List.mem true [v1 = w1; v1 = w2; v2 = w1; v2 = w2]
         ) pl_roads
   let is_valid_village_position gameState position =
+    (*
+     * Sprawdza czy aktualny gracz może legalnie wybudować wieś na podanej pozycji
+     * (czy jest tam doprowadzona jego droga).
+     * Zwraca true jeżeli budowa jest możliwa, wpp. false
+     *)
     let player = List.nth gameState.players @@ color2number gameState.tour in
     let plr = player.roads in
     let lst = List.map (fun i ->
@@ -318,6 +338,10 @@ module Catan = struct
 
   (* FUNKCJE GŁOWNE *)
   let rec steal_from gameState c =
+    (*
+     * Losuje jeden surowiec, zabiera go graczowi `c` i daje aktualnegu graczowi.
+     * Jeżeli gracz `c` nie ma surowców, nic się nie dzieje.
+     *)
     let player = List.nth gameState.players @@ color2number gameState.tour in
     let rs = player.resources in
     let victim = List.nth gameState.players @@ color2number c in
@@ -358,14 +382,22 @@ module Catan = struct
             else steal_from gameState c
     | _ -> failwith "out of range [err 15]"
   let next_player gameState =
+    (*
+     * Ustawia turę na kolejnego gracza
+     *)
     let current_player = color2number gameState.tour in
     if current_player+1 = List.length order
       then gameState.tour <- first_player
       else gameState.tour <- List.nth order (current_player+1)
-  let move_murzyn gameState position =
-    print_string @@ "Moving murzyn to position " ^ Int.to_string position ^ "\n";
-    gameState.murzyn <- position
+  let move_thief gameState position =
+    (* Przenosi złodzieja na nową pozycję *)
+    print_string @@ "Moving thief to position " ^ Int.to_string position ^ "\n";
+    gameState.thief <- position
   let build_village gameState position =
+    (*
+     * Buduje wioskę aktualnego gracza na zadanej pozycji.
+     * Gracz traci odpowiednią ilość surowców.
+     *)
     print_string @@ "Player " ^ color2str gameState.tour ^ " builds a village at position " ^ Int.to_string position ^ "\n";
     let place = List.nth gameState.settlements position in
     match place with
@@ -382,6 +414,10 @@ module Catan = struct
           player_info.points <- player_info.points + 1
       | _ -> failwith "Ooops! You can build village only on empty field!\n"
   let build_town gameState position =
+    (*
+     * Buduje miasto aktualnego gracza na zadanej pozycji.
+     * Gracz traci odpowiednią ilość surowców.
+     *)
     print_string @@ "Player " ^ color2str gameState.tour ^ " builds a town at position " ^ Int.to_string position ^ "\n";
     let place = List.nth gameState.settlements position in
     match place with
@@ -398,6 +434,10 @@ module Catan = struct
           player_info.points <- player_info.points + 1
       | _ -> failwith "Ooops! You can build town only on villages!\n"
   let build_road gameState position =
+    (*
+     * Buduje drogę aktualnego gracza na zadanej pozycji.
+     * Gracz traci odpowiednią ilość surowców.
+     *)
     print_string @@ "Player " ^ color2str gameState.tour ^ " builds a road at position " ^ Int.to_string position ^ "\n";
     gameState.roads <- Utils.replace gameState.roads position (Road gameState.tour);
     let player_info = List.nth gameState.players @@ color2number gameState.tour in
@@ -405,6 +445,10 @@ module Catan = struct
     player_info.roads <- List.append player_info.roads [position];
     player_info.resources <- {wood = rs.wood-1; clay = rs.clay-1; wheat = rs.wheat; sheep = rs.sheep; stone = rs.stone}
   let dice_roll gameState n1 n2 =
+    (*
+     * Funkcja zbiera surowce dla wszystkich graczy, bazując na wyniku kości.
+     * Ta funkcja NIE rozpatruje przypadku, gdy wypadło 7.
+     *)
     print_string @@ "Dice roll: " ^ Int.to_string (n1+n2) ^ "\n";
     gameState.dices <- n1, n2;
     List.iter (fun i ->
@@ -414,17 +458,23 @@ module Catan = struct
           List.iter (fun e ->
             print_string @@ "Player " ^ color2str c ^ " gains " ^ resource2str e ^ "\n";
             update_resources gameState c e
-          ) @@ check_resources fl (n1+n2)
+          ) @@ check_resources fl (n1+n2) gameState.thief
       | Town (fl, c) ->
           List.iter (fun e ->
             print_string @@ "Player " ^ color2str c ^ " gains 2 " ^ resource2str e ^ "\n";
             update_resources gameState c e;
             update_resources gameState c e
-          ) @@ check_resources fl (n1+n2)
+          ) @@ check_resources fl (n1+n2) gameState.thief
       | Empty _ -> ()
       | Blocked -> ()
     ) @@ Utils.range nof_settlements (* gameState.settlements *)
   let trade gameState offer claim trader =
+    (*
+     * Jeżeli dana oferta wymiany jest legalna,
+     * funkcja dokonuje wymiany i zwraca true.
+     * W przeciwnym wypadku, funkcja zwraca false i nie robi nic poza tym.
+     * Ta funkcja NIE rozpatruje przypadku, gdy jedną ze stron wymiany jest bank.
+     *)
     if is_valid_trade_offer gameState offer claim trader
       then begin
         print_string "deal\n";
@@ -445,6 +495,12 @@ module Catan = struct
         true
       end else false
   let trade_bank gameState offer claim =
+    (*
+     * Służy jedynie do wymiany z bankiem.
+     * Jeżeli dana oferta wymiany jest legalna,
+     * funkcja dokonuje wymiany i zwraca true.
+     * W przeciwnym wypadku, funkcja zwraca false i nie robi nic poza tym.
+     *)
     if is_valid_trade_offer gameState offer claim (-1)
       then begin
         print_string "deal\n";
@@ -460,6 +516,12 @@ module Catan = struct
 
   (* FUNKCJE INICJALIZUJĄCE *)
   let settlementsInit board =
+    (*
+     * Ta funcja tworzy startową listę zabudowań.
+     * Póki co jest ona złożona jedynie z pustych miejsc.
+     * Każde pole do budowy wsi/miasta przechowuje
+     * listę pól (z surowcami) do których przylega
+     *)
     (*  1 *) List.append [Empty [List.nth board 0]] @@
     (*  2 *) List.append [Empty [List.nth board 0]] @@
     (*  3 *) List.append [Empty [List.nth board 0 ; List.nth board 1]] @@
@@ -520,23 +582,30 @@ module Catan = struct
     (* 53 *) List.append [Empty [List.nth board 18]] @@
     (* 54 *) List.append [Empty [List.nth board 18]] []
   let boardInit () =
-    let rec _generate_board n f out =
+    (*
+     * Losuje i zwraa planszę
+     * (z zachowaniem zasad przyjętych w grze Catan, nie całkiem losowo)
+     *)
+    let rec _generate_board n f out i =
       match n, f with
         | nhd::ntl, fhd::ftl ->
             begin match fhd with
-              | 'P' -> _generate_board n ftl (Desert::out)
-              | 'D' -> _generate_board ntl ftl ((Wood nhd)::out)
-              | 'G' -> _generate_board ntl ftl ((Clay nhd)::out)
-              | 'S' -> _generate_board ntl ftl ((Wheat nhd)::out)
-              | 'K' -> _generate_board ntl ftl ((Stone nhd)::out)
-              | 'O' -> _generate_board ntl ftl ((Sheep nhd)::out)
+              | 'P' -> _generate_board n ftl (Desert::out) (i-1)
+              | 'D' -> _generate_board ntl ftl ((Wood (nhd,i))::out) (i-1)
+              | 'G' -> _generate_board ntl ftl ((Clay (nhd,i))::out) (i-1)
+              | 'S' -> _generate_board ntl ftl ((Wheat (nhd,i))::out) (i-1)
+              | 'K' -> _generate_board ntl ftl ((Stone (nhd,i))::out) (i-1)
+              | 'O' -> _generate_board ntl ftl ((Sheep (nhd,i))::out) (i-1)
               | _ -> failwith "Ooops, no such field!\n"
             end
         | [], fhd::ftl -> Desert::out
         | [], [] -> out
         | _ -> failwith "Ooops, shouldn't get here!\n"
-      in _generate_board numbers fields []
+      in _generate_board numbers fields [] 18
   let playerInit n =
+    (*
+     * Zwraca startową strukturę dla gracza o indeksie n
+     *)
     {
       settlements = [];
       resources   = {wood = 4; clay = 4; stone = 0; wheat = 2; sheep = 2};
@@ -545,12 +614,16 @@ module Catan = struct
       color       = List.nth order n;
     }
   let gameInit numberOfPlayers =
+    (*
+     * Inicjalizuje strukturę przechowującą cały stan gry
+     * dla zadanej liczby graczy
+     *)
     let board = boardInit () in {
       numberOfPlayers    = numberOfPlayers;
       board   = board;
       settlements  = settlementsInit board;
       roads   = List.map (fun _ -> NoRoad) @@ Utils.range nof_roads;
-      murzyn  = get_desert_idx board;
+      thief  = get_desert_idx board;
       dices   = 6, 6;
       tour    = first_player;
       players = List.map (fun n -> playerInit n) @@ Utils.range numberOfPlayers;
@@ -569,13 +642,14 @@ module Textures = struct
   }
   type t = {
     mutable background  : tagOrId;
-    mutable murzyn      : tagOrId;
+    mutable thief      : tagOrId;
     mutable fields      : tagOrId list;
     mutable numbers     : tagOrId list;
     mutable settlements : tagOrId list;
     mutable roads       : tagOrId list;
     mutable dices       : tagOrId * tagOrId;
     mutable non_active  : tagOrId list;
+    mutable info        : tagOrId list;
     mutable players     : player_info list;
   }
 
@@ -699,11 +773,11 @@ module Textures = struct
     let rec draw n lst =
       if n >= 0
       then begin match List.nth board n with
-        | Catan.Wood i
-        | Catan.Clay i
-        | Catan.Stone i
-        | Catan.Wheat i
-        | Catan.Sheep i -> draw (n-1) @@ draw_image screen ("./numbers/" ^ Int.to_string i ^ ".png") (fst @@ List.nth field_coords n) (snd @@ List.nth field_coords n) ::lst
+        | Catan.Wood (i, _)
+        | Catan.Clay (i, _)
+        | Catan.Stone (i, _)
+        | Catan.Wheat (i, _)
+        | Catan.Sheep (i, _) -> draw (n-1) @@ draw_image screen ("./numbers/" ^ Int.to_string i ^ ".png") (fst @@ List.nth field_coords n) (snd @@ List.nth field_coords n) ::lst
         | Catan.Desert  -> draw (n-1) lst
       end
       else lst
@@ -732,7 +806,7 @@ module Textures = struct
         | Catan.NoRoad -> draw_image screen "./buildings/none.png" ((x1+x2)/2) ((y1+y2)/2)
       ) @@ Utils.range Catan.nof_roads
     in objLst
-  let draw_murzyn screen n =
+  let draw_thief screen n =
     draw_image screen "./blocks/zlodziej.png" (fst @@ List.nth field_coords n) (snd @@ List.nth field_coords n)
   let draw_dices screen (n1, n2) =
     let d1 = draw_image screen ("./dice/wd" ^ Int.to_string n1 ^ ".png") 100 100 in
@@ -786,14 +860,23 @@ module Textures = struct
       victory_points = victory_points;
       roads = roads;
     }
+  let draw_info screen =
+    let rx, ry = 74, (1006-(128+10)*0) in
+    let vx, vy = 74, (1006-(128+10)*1) in
+    let tx, ty = 74, (1006-(128+10)*2) in
+    let ri = draw_image screen "./imgs/road_info.png" (rx+200) ry in
+    let vi = draw_image screen "./imgs/village_info.png" (vx+200) vy in
+    let ti = draw_image screen "./imgs/town_info.png" (tx+200) ty in
+    [ri; vi; ti]
 
   let render screen gameState =
     let background = draw_background screen in
+    let info       = draw_info       screen in
     let fields     = draw_board      screen gameState.Catan.board  in
     let numbers    = draw_numbers    screen gameState.Catan.board  in
     let roads      = draw_roads      screen gameState.Catan.roads in
     let buildings  = draw_building   screen gameState.Catan.settlements  in
-    let murzyn     = draw_murzyn     screen gameState.Catan.murzyn in
+    let thief     = draw_thief     screen gameState.Catan.thief in
     let dices      = draw_dices      screen gameState.Catan.dices in
     let players    = List.map
                       (fun n -> draw_player screen gameState.tour @@ List.nth gameState.Catan.players n)
@@ -807,24 +890,26 @@ module Textures = struct
     pack [screen];
     {
       background  = background;
-      murzyn      = murzyn;
+      thief      = thief;
       settlements = buildings;
       numbers     = numbers;
       fields      = fields;
       roads       = roads;
       dices       = dices;
       players     = players;
+      info     = info;
       non_active  = [next; bank; bob0; bob1; bob2; trade];
     }
   let clear_screen screen gameObjects =
     Canvas.delete screen [gameObjects.background];
-    Canvas.delete screen [gameObjects.murzyn];
+    Canvas.delete screen [gameObjects.thief];
     Canvas.delete screen gameObjects.fields;
     Canvas.delete screen gameObjects.numbers;
     Canvas.delete screen gameObjects.settlements;
     Canvas.delete screen gameObjects.roads;
     Canvas.delete screen [fst gameObjects.dices; snd gameObjects.dices];
     Canvas.delete screen gameObjects.non_active;
+    Canvas.delete screen gameObjects.info;
     List.iter (fun (p : player_info) ->
       Canvas.delete screen [p.background];
       Canvas.delete screen [p.avatar];
@@ -838,7 +923,7 @@ module Textures = struct
     clear_screen screen renderedObjects;
     let newObj = render screen gameState in
     renderedObjects.background  <- newObj.background;
-    renderedObjects.murzyn      <- newObj.murzyn;
+    renderedObjects.thief      <- newObj.thief;
     renderedObjects.fields      <- newObj.fields;
     renderedObjects.numbers     <- newObj.numbers;
     renderedObjects.settlements <- newObj.settlements;
@@ -911,12 +996,12 @@ module Control = struct
         (* Catan.next_player gameState; *)
         Canvas.delete screen [obj];
         gameControls.roll_dices <- None;
-        let n1, n2 = Utils.droll () in
+        let n1, n2 = Utils.random_pair () in
         if n1+n2 = 7
           then begin
             gameState.Catan.dices <- n1, n2;
             Textures.refresh screen gameState gameObjects;
-            enable_move_murzyn screen gameState gameObjects gameControls
+            enable_move_thief screen gameState gameObjects gameControls
           end
           else begin
             Catan.dice_roll gameState n1 n2;
@@ -925,14 +1010,14 @@ module Control = struct
           end
       ) screen obj
 
-  and enable_move_murzyn screen gameState gameObjects gameControls =
+  and enable_move_thief screen gameState gameObjects gameControls =
     let objLst = List.map (fun (x, y) ->
       Textures.draw_image screen "./control/trans_butt.png" x y
     ) Textures.field_coords
     in List.iter2 (fun obj idx ->
       Canvas.bind ~events:[`ButtonPress]
         ~action:(fun e ->
-          Catan.move_murzyn gameState idx;
+          Catan.move_thief gameState idx;
           Canvas.delete screen objLst;
           choose_player screen gameState gameObjects gameControls idx
           (* enable_standatd_tour screen gameState gameObjects gameControls *)
